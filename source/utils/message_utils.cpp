@@ -8,11 +8,22 @@
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <sys/time.h>
 
 namespace UI {
 namespace MessageUtils {
 
-static time_t clockSkew = 0;
+static int64_t cloudTimeOffset = 0;
+
+extern "C" int _gettimeofday_r(struct _reent *ptr, struct timeval *tp,
+                               void *tzp) {
+  if (tp != NULL) {
+    u64 timecode = osGetTime() - 2208988800000ULL;
+    tp->tv_sec = (timecode / 1000) + cloudTimeOffset;
+    tp->tv_usec = (timecode % 1000) * 1000;
+  }
+  return 0;
+}
 
 void syncClock(const std::string &dateStr) {
   char month_str[4];
@@ -45,12 +56,13 @@ void syncClock(const std::string &dateStr) {
       time_t local_offset = mktime(&dummy);
 
       serverTime -= local_offset;
-      clockSkew = serverTime - time(NULL);
+      u64 raw_timecode = osGetTime() - 2208988800000ULL;
+      cloudTimeOffset = serverTime - (raw_timecode / 1000);
     }
   }
 }
 
-time_t getUtcNow() { return time(NULL) + clockSkew; }
+time_t getUtcNow() { return time(NULL); }
 
 time_t parseISO8601(const std::string &timestamp) {
   int year, month, day, hour, min, sec;

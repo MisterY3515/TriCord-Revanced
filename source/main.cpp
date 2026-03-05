@@ -2,9 +2,11 @@
 #include "core/i18n.h"
 #include "discord/discord_client.h"
 #include "log.h"
+#include "network/http_client.h"
 #include "network/network_manager.h"
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
+#include "utils/message_utils.h"
 #include <3ds.h>
 #include <citro2d.h>
 #include <citro3d.h>
@@ -34,6 +36,15 @@ int main(int argc, char **argv) {
   Logger::log("TriCord - Discord for 3DS starting...");
   Config::getInstance().load();
   Network::NetworkManager::getInstance().init(3, 2);
+
+  Network::HttpClient timeClient;
+  timeClient.setTimeout(3);
+  Network::HttpResponse resp =
+      timeClient.get("http://detectportal.firefox.com/success.txt", {});
+  if (resp.headers.count("Date")) {
+    UI::MessageUtils::syncClock(resp.headers["Date"]);
+  }
+
   UI::ImageManager::getInstance().init();
   Discord::DiscordClient::getInstance().init();
   UI::ScreenManager::getInstance().init();
