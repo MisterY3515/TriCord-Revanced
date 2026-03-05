@@ -83,6 +83,26 @@ Output: `TriCord.3dsx`, `TriCord.cia`, `TriCord.elf`
 
 Config: `sdmc:/3ds/TriCord/config.json`
 
+## FAQ
+
+### Is there a possibility of an account ban/suspension?
+Because WebSockets are properly implemented, the risk is relatively lower compared to previous Discord clients for the 3DS. However, since it is an unofficial client, I cannot guarantee that the risk is zero. You should assume that there is always a risk of getting banned. As stated in the disclaimer, I take no responsibility for any account bans or suspensions.
+
+### The app crashes while loading guilds
+This is caused by your account being in too many servers. Please use a different account with fewer guilds. I plan to improve this as much as possible in the future.
+
+### The app is laggy / crashes frequently
+This is due to the 3DS hardware limitations, so there is nothing I can do about it. Especially on the Old 3DS, the RAM is half that of the New 3DS and the CPU is much weaker, making it prone to running slowly. I recommend using a New 3DS for the most comfortable experience. While I might add features exclusive to the New 3DS in the future, rest assured that I will never drop support for the Old 3DS.
+
+### I have a question
+Feel free to ask in our [Discord server](https://discord.gg/quYy9fK8tJ).
+
+### I found a bug
+Please report it by opening a [GitHub Issue](https://github.com/2b-zipper/TriCord/issues) or by visiting the bug-reports channel in our Discord server.
+
+### I want to add a translation
+You are more than welcome to! Please translate [en.json](https://github.com/2b-zipper/TriCord/blob/main/romfs/lang/en.json) into the language you want to add and submit a pull request.
+
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
@@ -94,9 +114,3 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 - [MorrisTheGamer](https://github.com/MorrisTheGamer) for the German translation
 - [Discord Userdoccers](https://github.com/discord-userdoccers/discord-userdoccers) for the documentation of the Discord API
 - And all other contributors!
-
-## Support
-If you encounter any issues or have questions:
-- Join our [Discord server](https://discord.gg/quYy9fK8tJ)
-- Open an issue on [GitHub Issues](https://github.com/2b-zipper/TriCord/issues)
-- Check existing issues for solutions
