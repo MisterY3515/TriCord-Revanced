@@ -112,5 +112,6 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 - [AverageJohtonian](https://github.com/AverageJohtonian) for the Spanish translation
 - [RossoDev](https://github.com/RossoDev) for the Italian translation
 - [MorrisTheGamer](https://github.com/MorrisTheGamer) for the German translation
+- [ReisuErx](https://github.com/ReisuErx) for the Polish translation
 - [Discord Userdoccers](https://github.com/discord-userdoccers/discord-userdoccers) for the documentation of the Discord API
 - And all other contributors!
