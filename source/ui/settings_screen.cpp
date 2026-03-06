@@ -27,9 +27,10 @@ void SettingsScreen::onEnter() {
                    : (langCode == "es") ? 3
                    : (langCode == "it") ? 4
                    : (langCode == "de") ? 5
+                   : (langCode == "pl") ? 6
                                         : 0;
   language.min = 0;
-  language.max = 5;
+  language.max = 6;
   language.valueFormatter = [](int val) {
     if (val == 0)
       return "English";
@@ -43,6 +44,8 @@ void SettingsScreen::onEnter() {
       return "Italiano";
     if (val == 5)
       return "Deutsch";
+    if (val == 6)
+      return "Polski";
     return "English";
   };
   language.onUpdate = [this](int val) {
@@ -51,6 +54,7 @@ void SettingsScreen::onEnter() {
                           : (val == 3) ? "es"
                           : (val == 4) ? "it"
                           : (val == 5) ? "de"
+                          : (val == 6) ? "pl"
                                        : "en";
     Config::getInstance().setLanguage(newLang);
     Config::getInstance().saveSettings();
