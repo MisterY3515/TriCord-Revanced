@@ -85,7 +85,7 @@ public:
   bool hasToken() const { return !accounts.empty(); }
 
   int getTimezoneOffset() const { return timezoneOffset; }
-  void setTimezoneOffset(int offset) { timezoneOffset = offset; }
+  void setTimezoneOffset(int offset);
 
   std::string getLanguage() const { return language; }
   void setLanguage(const std::string &lang) {
@@ -100,16 +100,17 @@ public:
     saveTheme();
   }
   int getThemeType() const { return themeType; }
-  void setThemeType(int type) { themeType = type; }
+  void setThemeType(int type);
   bool isTypingIndicatorEnabled() const { return typingIndicatorEnabled; }
-  void setTypingIndicatorEnabled(bool enabled) {
-    typingIndicatorEnabled = enabled;
-  }
+  void setTypingIndicatorEnabled(bool enabled);
   bool isFileLoggingEnabled() const { return fileLoggingEnabled; }
   void setFileLoggingEnabled(bool enabled);
 
   bool isDisclaimerAccepted() const { return disclaimerAccepted; }
   void setDisclaimerAccepted(bool accepted);
+
+  bool isSslVerificationDisabled() const { return sslVerificationDisabled; }
+  void setSslVerificationDisabled(bool disabled);
 
   void loadTheme();
   void saveTheme();
@@ -124,6 +125,7 @@ private:
   bool typingIndicatorEnabled;
   bool fileLoggingEnabled;
   bool disclaimerAccepted;
+  bool sslVerificationDisabled;
   Theme customTheme;
 
   mutable std::recursive_mutex mutex;

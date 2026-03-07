@@ -31,8 +31,10 @@ void DisclaimerScreen::update() {
     } else {
       ScreenManager::getInstance().setScreen(ScreenType::LOGIN);
     }
+    return;
   } else if (kDown & KEY_B) {
     ScreenManager::getInstance().requestAppExit();
+    return;
   }
 }
 

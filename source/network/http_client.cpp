@@ -30,8 +30,9 @@ HttpClient::HttpClient()
 
   curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+  bool disableSSL = Config::getInstance().isSslVerificationDisabled();
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, disableSSL ? 0L : 1L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, disableSSL ? 0L : 2L);
   const char *caPath = "romfs:/cacert-2025-12-02.pem";
   curl_easy_setopt(curl, CURLOPT_CAINFO, caPath);
 
@@ -155,6 +156,9 @@ void HttpClient::setTimeout(long seconds) {
 }
 
 void HttpClient::setVerifySSL(bool verify) {
+  if (Config::getInstance().isSslVerificationDisabled()) {
+    verify = false;
+  }
   verifySSL = verify;
   if (curl) {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, verify ? 1L : 0L);

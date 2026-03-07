@@ -27,6 +27,7 @@ void AboutScreen::update() {
 
   if (kDown & (KEY_B | KEY_SELECT)) {
     ScreenManager::getInstance().returnToPreviousScreen();
+    return;
   }
 
   float scrollSpeed = 2.0f;

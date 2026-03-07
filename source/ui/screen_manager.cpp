@@ -17,6 +17,7 @@
 #include "ui/text_measure_cache.h"
 #include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
+#include <cmath>
 
 namespace UI {
 
@@ -218,16 +219,16 @@ void ScreenManager::update() {
   bool shouldBlockScreen = !hamburgerMenu.isClosed();
 
   if (!isMenuHidden()) {
-    if (kDown & KEY_SELECT) {
-      hamburgerMenu.toggle();
-      shouldBlockScreen = true;
-    }
-
     touchPosition touch;
     hidTouchRead(&touch);
     if (kDown & KEY_TOUCH) {
       if (touch.px < 40 && touch.py < 40) {
-        hamburgerMenu.toggle();
+        if (shouldShowBackArrow()) {
+          UI::SettingsScreen *ss = (UI::SettingsScreen *)currentScreen.get();
+          ss->saveAndExit();
+        } else {
+          hamburgerMenu.toggle();
+        }
         shouldBlockScreen = true;
       }
     }
@@ -317,6 +318,28 @@ void ScreenManager::renderDebugOverlay() {
 }
 
 void ScreenManager::drawHamburgerButton() {
+  if (shouldShowBackArrow()) {
+    C3D_Tex *backTex = ImageManager::getInstance().getLocalImage(
+        "romfs:/discord-icons/arrow-large-left.png", true);
+    if (backTex) {
+      ImageManager::ImageInfo info = ImageManager::getInstance().getImageInfo(
+          "romfs:/discord-icons/arrow-large-left.png");
+      Tex3DS_SubTexture sub;
+      sub.width = (u16)info.originalW;
+      sub.height = (u16)info.originalH;
+      sub.left = 0.0f;
+      sub.top = 0.0f;
+      sub.right = (float)info.originalW / backTex->width;
+      sub.bottom = (float)info.originalH / backTex->height;
+      C2D_Image img = {backTex, &sub};
+      float iconSize = 20.0f;
+      float scale = iconSize / info.originalW;
+      C2D_DrawImageAtRotated(img, 18, 18, 1.0f, -M_PI / 2.0f, nullptr, scale,
+                             scale);
+      return;
+    }
+  }
+
   u32 color = colorText();
   float x = 12.0f;
   float y = 11.0f;
@@ -333,7 +356,7 @@ void ScreenManager::drawHamburgerButton() {
 
 void ScreenManager::showToast(const std::string &message) {
   toastMessage = message;
-  toastTimer = 90;
+  toastTimer = 120;
 }
 
 bool ScreenManager::isMenuHidden() const {
@@ -345,6 +368,16 @@ bool ScreenManager::isMenuHidden() const {
   return (currentType == ScreenType::LOGIN) ||
          (currentType == ScreenType::DISCLAIMER) ||
          (currentType == ScreenType::ADD_ACCOUNT && isConnecting);
+}
+
+bool ScreenManager::shouldShowBackArrow() const {
+  if (currentType != ScreenType::SETTINGS)
+    return false;
+  if (screenHistory.empty())
+    return false;
+
+  ScreenType prev = screenHistory.back();
+  return (prev == ScreenType::LOGIN || prev == ScreenType::DISCLAIMER);
 }
 
 void ScreenManager::drawToast() {

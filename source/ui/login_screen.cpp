@@ -59,6 +59,17 @@ void LoginScreen::onExit() {
 }
 
 void LoginScreen::update() {
+  u32 kDown = hidKeysDown();
+
+  if (kDown & KEY_TOUCH) {
+    touchPosition touch;
+    hidTouchRead(&touch);
+    if (touch.px < 35 && touch.py < 35) {
+      ScreenManager::getInstance().pushScreen(ScreenType::SETTINGS);
+      return;
+    }
+  }
+
   Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
 
   if (client.getState() == Discord::ConnectionState::READY) {
@@ -122,8 +133,6 @@ void LoginScreen::update() {
     if (screenType == ScreenType::LOGIN)
       return;
   }
-
-  u32 kDown = hidKeysDown();
 
   Discord::RemoteAuth::getInstance().poll();
 
@@ -427,6 +436,27 @@ void LoginScreen::renderBottom(C3D_RenderTarget *target) {
       drawCenteredText(btnY + 11.0f, 0.5f, 0.55f, 0.55f,
                        ScreenManager::colorWhite(), TR("login.button.login"),
                        BOTTOM_SCREEN_WIDTH);
+
+      if (ScreenManager::getInstance().getCurrentType() == ScreenType::LOGIN) {
+        C3D_Tex *settingTex = ImageManager::getInstance().getLocalImage(
+            "romfs:/discord-icons/setting.png", true);
+        if (settingTex) {
+          ImageManager::ImageInfo info =
+              ImageManager::getInstance().getImageInfo(
+                  "romfs:/discord-icons/setting.png");
+          Tex3DS_SubTexture sub;
+          sub.width = (u16)info.originalW;
+          sub.height = (u16)info.originalH;
+          sub.left = 0.0f;
+          sub.top = 0.0f;
+          sub.right = (float)info.originalW / settingTex->width;
+          sub.bottom = (float)info.originalH / settingTex->height;
+          C2D_Image img = {settingTex, &sub};
+          float iconSize = 20.0f;
+          float scale = iconSize / info.originalW;
+          C2D_DrawImageAt(img, 8, 8, 0.5f, nullptr, scale, scale);
+        }
+      }
 
       drawCenteredText(BOTTOM_SCREEN_HEIGHT - 35.0f, 0.5f, 0.4f, 0.4f,
                        ScreenManager::colorError(), statusMessage,

@@ -61,6 +61,7 @@ public:
   void requestAppExit() { appExitRequested = true; }
 
   bool isMenuHidden() const;
+  bool shouldShowBackArrow() const;
 
   void renderDebugOverlay();
   bool isDebugOverlayEnabled() const { return debugOverlayEnabled; }

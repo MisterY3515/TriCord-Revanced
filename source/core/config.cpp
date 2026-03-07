@@ -22,7 +22,7 @@
 Config::Config()
     : currentAccountIndex(-1), timezoneOffset(0), language("en"), themeType(0),
       typingIndicatorEnabled(true), fileLoggingEnabled(false),
-      disclaimerAccepted(false) {
+      disclaimerAccepted(false), sslVerificationDisabled(false) {
   customTheme = getDarkPreset();
   customTheme.name = "Custom Theme";
 }
@@ -212,6 +212,10 @@ void Config::loadSettings() {
           doc["disclaimer_accepted"].IsBool()) {
         disclaimerAccepted = doc["disclaimer_accepted"].GetBool();
       }
+      if (doc.HasMember("ssl_verification_disabled") &&
+          doc["ssl_verification_disabled"].IsBool()) {
+        sslVerificationDisabled = doc["ssl_verification_disabled"].GetBool();
+      }
     } else {
       saveSettings();
     }
@@ -240,6 +244,8 @@ void Config::saveSettings() {
   writer.Bool(fileLoggingEnabled);
   writer.Key("disclaimer_accepted");
   writer.Bool(disclaimerAccepted);
+  writer.Key("ssl_verification_disabled");
+  writer.Bool(sslVerificationDisabled);
   writer.EndObject();
 
   std::string settingsPath = std::string(CONFIG_DIR_PATH) + "/settings.json";
@@ -254,6 +260,26 @@ void Config::setFileLoggingEnabled(bool enabled) {
 
 void Config::setDisclaimerAccepted(bool accepted) {
   disclaimerAccepted = accepted;
+  saveSettings();
+}
+
+void Config::setSslVerificationDisabled(bool disabled) {
+  sslVerificationDisabled = disabled;
+  saveSettings();
+}
+
+void Config::setTimezoneOffset(int offset) {
+  timezoneOffset = offset;
+  saveSettings();
+}
+
+void Config::setThemeType(int type) {
+  themeType = type;
+  saveSettings();
+}
+
+void Config::setTypingIndicatorEnabled(bool enabled) {
+  typingIndicatorEnabled = enabled;
   saveSettings();
 }
 

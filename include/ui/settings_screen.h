@@ -8,7 +8,7 @@
 
 namespace UI {
 
-enum class SettingItemType { INTEGER, TOGGLE, ACTION };
+enum class SettingItemType { INTEGER, STEPPER, TOGGLE, ACTION, SECTION_HEADER };
 
 struct SettingItem {
   std::string label;
@@ -19,6 +19,8 @@ struct SettingItem {
   int max;
   std::function<std::string(int)> valueFormatter;
   std::function<void(int)> onUpdate;
+  std::function<void()> action;
+  bool isDeveloper = false;
 };
 
 class SettingsScreen : public Screen {
@@ -31,15 +33,28 @@ public:
   void update() override;
   void renderTop(C3D_RenderTarget *target) override;
   void renderBottom(C3D_RenderTarget *target) override;
+  void saveAndExit();
 
 private:
-  std::vector<SettingItem> items;
+  std::vector<SettingItem> allItems;
+  std::vector<SettingItem *> visibleItems;
+
   int selectedIndex;
   float scrollOffset;
   int repeatTimer;
   u32 lastKey;
 
-  void saveAndExit();
+  std::string searchQuery;
+  bool isDeveloperMode;
+
+  bool popupActive;
+  int popupSelectedIndex;
+  SettingItem *activePopupItem;
+  float popupScrollOffset;
+
+  bool scheduleRefresh = false;
+
+  void refreshVisibleItems();
 };
 
 } // namespace UI
