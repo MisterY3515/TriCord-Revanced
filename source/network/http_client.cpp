@@ -218,7 +218,9 @@ void HttpClient::setupHeaders(
 
   *headers = nullptr;
 
-  bool isDiscord = (url.find("discord.com") != std::string::npos);
+  bool isDiscord = (url.find("discord.com") != std::string::npos ||
+                    url.find("discordapp.com") != std::string::npos ||
+                    url.find("discordapp.net") != std::string::npos);
 
   for (const auto &pair : defaultHeaders) {
     if (extraHeaders.find(pair.first) == extraHeaders.end()) {
