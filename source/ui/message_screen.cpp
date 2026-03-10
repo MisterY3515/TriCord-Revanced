@@ -64,11 +64,22 @@ void MessageScreen::onEnter() {
     }
   }
 
+  this->channelName = MessageUtils::getChannelDisplayName(channel);
+
   this->truncatedChannelName =
       getTruncatedRichText(this->channelName, 310.0f - 56.0f, 0.55f, 0.55f);
 
   if (!this->guildId.empty()) {
     client.sendLazyRequest(this->guildId, channelId);
+  }
+
+  if (channel.type == 1 && !channel.recipients.empty()) {
+    const auto &r = channel.recipients[0];
+    Discord::AvatarCache::getInstance().prefetchAvatar(r.id, r.avatar,
+                                                       r.discriminator);
+  } else if (channel.type == 3 && !channel.icon.empty()) {
+    Discord::AvatarCache::getInstance().prefetchChannelIcon(channel.id,
+                                                            channel.icon);
   }
 
   client.setMessageCallback([this](const Discord::Message &msg) {
@@ -243,10 +254,6 @@ void MessageScreen::onEnter() {
     Logger::log("[UI] Gateway reconnected, catching up messages...");
     catchUpMessages();
   });
-
-  if (!channel.name.empty() && channel.name != "Channel") {
-    channelName = channel.name;
-  }
 
   this->messages.clear();
   isForumView = (channel.type == 15);
@@ -746,7 +753,7 @@ float MessageScreen::calculateMessageHeight(const Discord::Message &msg,
     return 45.0f;
   }
 
-  if (msg.type >= 6 && msg.type <= 10) {
+  if (msg.type != 0 && msg.type != 19) {
     return topMargin + 26.0f;
   }
 
@@ -938,25 +945,66 @@ float MessageScreen::drawSystemMessage(const Discord::Message &msg, float y,
 
   u32 nameColor = ScreenManager::colorText();
 
-  if (msg.type == 7) {
-    text = TR("message.system.joined");
+  if (msg.type == 7 || msg.type == 1) {
+    std::string targetName = "";
+    if (msg.type == 1 && !msg.mentions.empty()) {
+      targetName = msg.mentions[0].global_name.empty()
+                       ? msg.mentions[0].username
+                       : msg.mentions[0].global_name;
+    }
+    text = (msg.type == 7)
+               ? TR("message.system.joined")
+               : Core::I18n::format(TR("message.system.recipient_add"),
+                                    targetName);
     iconColor = C2D_Color32(55, 151, 93, 255);
-  } else if (msg.type == 8 || msg.type == 9 || msg.type == 10) {
+  } else if (msg.type == 2) {
+    std::string targetName = "";
+    if (!msg.mentions.empty()) {
+      targetName = msg.mentions[0].global_name.empty()
+                       ? msg.mentions[0].username
+                       : msg.mentions[0].global_name;
+    }
+    text =
+        Core::I18n::format(TR("message.system.recipient_remove"), targetName);
+    iconColor = C2D_Color32(237, 66, 69, 255);
+  } else if (msg.type >= 8 && msg.type <= 11) {
     text = TR("message.system.boosted");
     iconColor = C2D_Color32(253, 112, 243, 255);
   } else if (msg.type == 6) {
     iconColor = ScreenManager::colorTextMuted();
     text = TR("message.system.pinned");
+  } else if (msg.type == 4) {
+    iconColor = ScreenManager::colorTextMuted();
+    text = Core::I18n::format(TR("message.system.name_changed"), msg.content);
+  } else if (msg.type == 5) {
+    iconColor = ScreenManager::colorTextMuted();
+    text = TR("message.system.icon_changed");
+  } else if (msg.type == 3) {
+    iconColor = C2D_Color32(55, 151, 93, 255);
+    text = TR("message.system.call");
+  } else {
+    return height;
   }
 
-  if (msg.type == 6 || msg.type == 7 || (msg.type >= 8 && msg.type <= 10)) {
+  if (true) {
     std::string iconPath;
     if (msg.type == 6)
       iconPath = "romfs:/discord-icons/pin.png";
-    else if (msg.type == 7)
+    else if (msg.type == 4 || msg.type == 5)
+      iconPath = "romfs:/discord-icons/pencil.png";
+    else if (msg.type == 7 || msg.type == 1)
       iconPath = "romfs:/discord-icons/arrow-right.png";
-    else
+    else if (msg.type == 2)
+      iconPath = "romfs:/discord-icons/arrow-left.png";
+    else if (msg.type >= 8 && msg.type <= 11)
       iconPath = "romfs:/discord-icons/boostgem.png";
+    else if (msg.type == 3)
+      iconPath = "romfs:/discord-icons/phone.png";
+    else
+      iconPath = "romfs:/discord-icons/chat.png";
+
+    if (authorName.empty())
+      authorName = "Discord";
 
     C3D_Tex *tex = ImageManager::getInstance().getLocalImage(iconPath, true);
     if (tex) {
@@ -967,21 +1015,57 @@ float MessageScreen::drawSystemMessage(const Discord::Message &msg, float y,
       C2D_ImageTint tint;
       C2D_PlainImageTint(&tint, iconColor, 1.0f);
 
-      C2D_DrawImageAt(img, 17.0f, drawY, 0.5f, &tint, iconSize / tex->width,
-                      iconSize / tex->height);
+      float scaleX = iconSize / tex->width;
+      float scaleY = iconSize / tex->height;
+
+      C2D_DrawImageAt(img, 17.0f, drawY, 0.5f, &tint, scaleX, scaleY);
     } else {
-      drawText(12.0f, drawY, 0.55f, 0.35f, 0.35f, iconColor, icon);
+      drawText(12.0f, drawY, 0.55f, 0.35f, 0.35f, iconColor, "->");
     }
-  } else {
-    drawText(12.0f, drawY, 0.55f, 0.35f, 0.35f, iconColor, icon);
   }
 
   const float textOffsetX = 42.0f;
-  float nameW = UI::measureRichText(authorName, 0.42f, 0.42f);
-  drawRichText(textOffsetX, drawY, 0.5f, 0.42f, 0.42f, nameColor, authorName);
+  float currentX = textOffsetX;
+  drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f, nameColor, authorName);
+  currentX += UI::measureRichText(authorName, 0.42f, 0.42f);
 
-  drawRichText(textOffsetX + nameW, drawY, 0.5f, 0.42f, 0.42f,
-               ScreenManager::colorTextMuted(), text);
+  if (msg.type == 1 || msg.type == 2) {
+    std::string templateStr =
+        TR(msg.type == 1 ? "message.system.recipient_add"
+                         : "message.system.recipient_remove");
+    std::string targetName = "";
+    if (!msg.mentions.empty()) {
+      targetName = msg.mentions[0].global_name.empty()
+                       ? msg.mentions[0].username
+                       : msg.mentions[0].global_name;
+    }
+
+    size_t pos = templateStr.find("{0}");
+    if (pos != std::string::npos) {
+      std::string before = templateStr.substr(0, pos);
+      std::string after = templateStr.substr(pos + 3);
+
+      if (!before.empty()) {
+        drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f,
+                     ScreenManager::colorTextMuted(), before);
+        currentX += UI::measureRichText(before, 0.42f, 0.42f);
+      }
+
+      drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f, nameColor, targetName);
+      currentX += UI::measureRichText(targetName, 0.42f, 0.42f);
+
+      if (!after.empty()) {
+        drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f,
+                     ScreenManager::colorTextMuted(), after);
+      }
+    } else {
+      drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f,
+                   ScreenManager::colorTextMuted(), text);
+    }
+  } else {
+    drawRichText(currentX, drawY, 0.5f, 0.42f, 0.42f,
+                 ScreenManager::colorTextMuted(), text);
+  }
   return height;
 }
 
@@ -1510,7 +1594,7 @@ float MessageScreen::drawMessage(const Discord::Message &msg, float y,
                     ScreenManager::colorBackgroundLight());
   }
 
-  if (msg.type >= 6 && msg.type <= 10) {
+  if (msg.type != 0 && msg.type != 19) {
     return drawSystemMessage(msg, y, topMargin, height);
   }
 
@@ -1699,17 +1783,41 @@ void MessageScreen::renderBottom(C3D_RenderTarget *target) {
     iconPath = "romfs:/discord-icons/text.png";
   }
 
-  C3D_Tex *icon = UI::ImageManager::getInstance().getLocalImage(iconPath);
+  C3D_Tex *icon = nullptr;
+  bool isAvatar = false;
+
+  if (channelType == 1 || channelType == 3) {
+    Discord::Channel ch =
+        Discord::DiscordClient::getInstance().getChannel(channelId);
+    if (channelType == 3 && !ch.icon.empty()) {
+      icon = Discord::AvatarCache::getInstance().getChannelIcon(ch.id, ch.icon);
+    } else if (channelType == 1 && !ch.recipients.empty()) {
+      const auto &r = ch.recipients[0];
+      icon = Discord::AvatarCache::getInstance().getAvatar(r.id, r.avatar,
+                                                           r.discriminator);
+    }
+    if (icon)
+      isAvatar = true;
+  }
+
+  if (!icon) {
+    icon = UI::ImageManager::getInstance().getLocalImage(iconPath);
+  }
+
   if (icon) {
     float iconSize = 16.0f;
     Tex3DS_SubTexture subtex = {
         (u16)icon->width, (u16)icon->height, 0.0f, 1.0f, 1.0f, 0.0f};
     C2D_Image img = {icon, &subtex};
 
+    C2D_ImageTint *tintPtr = nullptr;
     C2D_ImageTint tint;
-    C2D_PlainImageTint(&tint, ScreenManager::colorText(), 1.0f);
+    if (!isAvatar) {
+      C2D_PlainImageTint(&tint, ScreenManager::colorText(), 1.0f);
+      tintPtr = &tint;
+    }
 
-    C2D_DrawImageAt(img, 35.0f, 10.0f, 0.51f, &tint, iconSize / icon->width,
+    C2D_DrawImageAt(img, 35.0f, 10.0f, 0.51f, tintPtr, iconSize / icon->width,
                     iconSize / icon->height);
     headerX = 35.0f + iconSize + 5.0f;
   } else {
@@ -1954,10 +2062,10 @@ void MessageScreen::showMessageOptions() {
       selectedIndex >= (int)this->messages.size())
     return;
 
-  if (isMenuOpen)
+  const Discord::Message &msg = this->messages[selectedIndex];
+  if (msg.type != 0 && msg.type != 19 && msg.type != 7)
     return;
 
-  const Discord::Message &msg = this->messages[selectedIndex];
   Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
   bool isMine = (msg.author.id == client.getCurrentUser().id);
 

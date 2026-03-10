@@ -5,6 +5,7 @@
 #include "log.h"
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
+#include "utils/message_utils.h"
 #include <3ds.h>
 #include <algorithm>
 
@@ -45,8 +46,10 @@ void DmScreen::update() {
       const auto &r = dm.recipients[0];
       Discord::AvatarCache::getInstance().prefetchAvatar(r.id, r.avatar,
                                                          r.discriminator);
-    } else if (dm.type == 3 && !dm.icon.empty()) {
-      Discord::AvatarCache::getInstance().prefetchGuildIcon(dm.id, dm.icon);
+    } else if (dm.type == 3) {
+      if (!dm.icon.empty()) {
+        Discord::AvatarCache::getInstance().prefetchChannelIcon(dm.id, dm.icon);
+      }
     }
   }
 
@@ -135,13 +138,7 @@ void DmScreen::renderBottom(C3D_RenderTarget *target) {
 
   if (selectedIndex >= 0 && selectedIndex < (int)dms.size()) {
     const auto &dm = dms[selectedIndex];
-    std::string dispNameBottom = dm.name;
-    if (dispNameBottom.empty() && dm.type == 1 && !dm.recipients.empty()) {
-      dispNameBottom = dm.recipients[0].global_name;
-      if (dispNameBottom.empty()) {
-        dispNameBottom = dm.recipients[0].username;
-      }
-    }
+    std::string dispNameBottom = MessageUtils::getChannelDisplayName(dm);
     float maxBottomW = 310.0f - 10.0f;
     if (measureRichText(dispNameBottom, 0.6f, 0.6f) > maxBottomW) {
       while (!dispNameBottom.empty() &&
@@ -188,9 +185,11 @@ void DmScreen::drawDmItem(int index, const Discord::Channel &dm, float y) {
     const auto &r = dm.recipients[0];
     avatarTex = Discord::AvatarCache::getInstance().getAvatar(r.id, r.avatar,
                                                               r.discriminator);
-  } else if (dm.type == 3 && !dm.icon.empty()) {
-    avatarTex =
-        Discord::AvatarCache::getInstance().getGuildIcon(dm.id, dm.icon);
+  } else if (dm.type == 3) {
+    if (!dm.icon.empty()) {
+      avatarTex =
+          Discord::AvatarCache::getInstance().getChannelIcon(dm.id, dm.icon);
+    }
   }
 
   if (avatarTex) {
@@ -213,13 +212,7 @@ void DmScreen::drawDmItem(int index, const Discord::Channel &dm, float y) {
     }
   }
 
-  std::string dispName = dm.name;
-  if (dispName.empty() && dm.type == 1 && !dm.recipients.empty()) {
-    dispName = dm.recipients[0].global_name;
-    if (dispName.empty()) {
-      dispName = dm.recipients[0].username;
-    }
-  }
+  std::string dispName = MessageUtils::getChannelDisplayName(dm);
   float maxW = 390.0f - 60.0f - 10.0f;
   if (measureRichText(dispName, 0.55f, 0.55f) > maxW) {
     while (!dispName.empty() &&

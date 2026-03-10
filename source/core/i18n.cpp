@@ -54,11 +54,16 @@ std::string I18n::get(const std::string &key) const {
   return key;
 }
 
-std::string I18n::format(const std::string &fmt, const std::string &arg0) {
+std::string I18n::format(const std::string &fmt, const std::string &arg0,
+                         const std::string &arg1) {
   std::string res = fmt;
-  size_t pos = res.find("{0}");
-  if (pos != std::string::npos) {
-    res.replace(pos, 3, arg0);
+  size_t pos0 = res.find("{0}");
+  if (pos0 != std::string::npos) {
+    res.replace(pos0, 3, arg0);
+  }
+  size_t pos1 = res.find("{1}");
+  if (pos1 != std::string::npos) {
+    res.replace(pos1, 3, arg1);
   }
   return res;
 }

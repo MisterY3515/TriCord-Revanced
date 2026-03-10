@@ -487,5 +487,31 @@ std::string getISOTimestamp(time_t epoch) {
   return std::string(buffer);
 }
 
+std::string getChannelDisplayName(const Discord::Channel &channel) {
+  if (!channel.name.empty() && channel.name != "Channel") {
+    return channel.name;
+  }
+
+  if ((channel.type == 1 || channel.type == 3) && !channel.recipients.empty()) {
+    if (channel.type == 1) {
+      return channel.recipients[0].global_name.empty()
+                 ? channel.recipients[0].username
+                 : channel.recipients[0].global_name;
+    } else {
+      std::string result = "";
+      for (size_t i = 0; i < channel.recipients.size(); ++i) {
+        result += channel.recipients[i].global_name.empty()
+                      ? channel.recipients[i].username
+                      : channel.recipients[i].global_name;
+        if (i < channel.recipients.size() - 1)
+          result += ", ";
+      }
+      return result;
+    }
+  }
+
+  return channel.name.empty() ? "Channel" : channel.name;
+}
+
 } // namespace MessageUtils
 } // namespace UI

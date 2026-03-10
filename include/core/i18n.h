@@ -16,7 +16,8 @@ public:
   bool loadLanguage(const std::string &langCode);
   std::string get(const std::string &key) const;
 
-  static std::string format(const std::string &fmt, const std::string &arg0);
+  static std::string format(const std::string &fmt, const std::string &arg0,
+                            const std::string &arg1 = "");
 
   std::string getCurrentLanguage() const { return currentLang; }
 

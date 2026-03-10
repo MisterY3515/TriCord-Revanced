@@ -1051,6 +1051,21 @@ Message DiscordClient::parseSingleMessage(const rapidjson::Value &d) {
     }
   }
 
+  // Parse mentions
+  if (d.HasMember("mentions") && d["mentions"].IsArray()) {
+    const rapidjson::Value &mentions = d["mentions"];
+    for (rapidjson::SizeType i = 0; i < mentions.Size(); i++) {
+      const rapidjson::Value &mObj = mentions[i];
+      User user;
+      user.id = Utils::Json::getString(mObj, "id");
+      user.username = Utils::Json::getString(mObj, "username");
+      user.global_name = Utils::Json::getString(mObj, "global_name");
+      user.avatar = Utils::Json::getString(mObj, "avatar");
+      user.discriminator = Utils::Json::getString(mObj, "discriminator");
+      msg.mentions.push_back(user);
+    }
+  }
+
   // Parse message type and reply reference
   msg.type = Utils::Json::getInt(d, "type");
 

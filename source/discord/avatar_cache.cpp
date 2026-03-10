@@ -80,6 +80,23 @@ C3D_Tex *AvatarCache::getGuildIcon(const std::string &guildId,
   return nullptr;
 }
 
+C3D_Tex *AvatarCache::getChannelIcon(const std::string &channelId,
+                                     const std::string &iconHash) {
+  if (iconHash.empty())
+    return nullptr;
+
+  std::lock_guard<std::recursive_mutex> lock(cacheMutex);
+  auto it = cache.find(channelId);
+  if (it != cache.end()) {
+    if (it->second.tex)
+      return it->second.tex;
+    return nullptr;
+  }
+
+  prefetchChannelIcon(channelId, iconHash);
+  return nullptr;
+}
+
 void AvatarCache::prefetchAvatar(const std::string &userId,
                                  const std::string &avatarHash,
                                  const std::string &discriminator) {
@@ -178,6 +195,48 @@ void AvatarCache::prefetchGuildIcon(const std::string &guildId,
         } else {
           std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
           auto it = this->cache.find(guildId);
+          if (it != this->cache.end())
+            it->second.loading = false;
+        }
+      });
+}
+
+void AvatarCache::prefetchChannelIcon(const std::string &channelId,
+                                      const std::string &iconHash) {
+  if (iconHash.empty())
+    return;
+
+  std::lock_guard<std::recursive_mutex> lock(cacheMutex);
+  auto it = cache.find(channelId);
+  if (it != cache.end()) {
+    if (!it->second.tex && !it->second.loading) {
+      cache.erase(it);
+    } else {
+      return;
+    }
+  }
+
+  AvatarInfo info;
+  info.url = "https://cdn.discordapp.com/channel-icons/" + channelId + "/" +
+             iconHash + ".png?size=64";
+  info.loading = true;
+  cache[channelId] = info;
+
+  Network::NetworkManager::getInstance().enqueue(
+      info.url, "GET", "", Network::RequestPriority::BACKGROUND,
+      [this, channelId](const Network::HttpResponse &resp) {
+        if (resp.statusCode == 200 && !resp.body.empty()) {
+          C3D_Tex *tex = Utils::Image::loadTextureFromMemory(
+              (const unsigned char *)resp.body.data(), resp.body.size());
+
+          std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
+          PendingAvatar pa;
+          pa.id = channelId;
+          pa.tex = tex;
+          this->pendingAvatars.push_back(pa);
+        } else {
+          std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
+          auto it = this->cache.find(channelId);
           if (it != this->cache.end())
             it->second.loading = false;
         }

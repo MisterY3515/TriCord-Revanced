@@ -160,6 +160,7 @@ struct Message {
   std::vector<Attachment> attachments;
   std::vector<Sticker> stickers;
   std::vector<Reaction> reactions;
+  std::vector<User> mentions;
 
   std::string referencedMessageId;
   std::string referencedAuthorName;
