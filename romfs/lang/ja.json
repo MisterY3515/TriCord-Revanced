@@ -140,6 +140,7 @@
     "server.list": "サーバー",
     "server.member_count": "メンバー数",
     "server.online_count": "オンライン",
+    "server.no_servers": "参加しているサーバーがありません",
     "server.select": "サーバー選択",
     "settings.desc.language": "アプリケーションの表示言語を選択します。",
     "settings.desc.manage_themes": "SDカード内のカスタムテーマ（JSON）を管理・適用します。",

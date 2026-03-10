@@ -251,7 +251,7 @@ void ServerListScreen::update() {
     if (!client.getGuilds().empty()) {
       rebuildList();
       refreshChannels();
-    } else {
+    } else if (client.getState() != Discord::ConnectionState::READY) {
       animTimer += 1.0f / 60.0f;
       if (animTimer >= 1.5f)
         animTimer = 0.0f;
@@ -441,6 +441,25 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
   C2D_TargetClear(target, ScreenManager::colorBackground());
 
   if (listItems.empty()) {
+    if (Discord::DiscordClient::getInstance().getGuilds().empty() &&
+        Discord::DiscordClient::getInstance().getState() ==
+            Discord::ConnectionState::READY) {
+      float headerH = 26.0f;
+      C2D_DrawRectSolid(0, 0, 0.9f, 400.0f, headerH,
+                        ScreenManager::colorHeaderGlass());
+      C2D_DrawRectSolid(0, headerH - 1.0f, 0.91f, 400.0f, 1.0f,
+                        ScreenManager::colorHeaderBorder());
+
+      drawCenteredRichText(4.0f, 0.95f, 0.52f, 0.52f,
+                           ScreenManager::colorText(), TR("menu.servers"),
+                           400.0f);
+
+      drawCenteredText(
+          120.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(),
+          Core::I18n::getInstance().get("server.no_servers"), 400.0f);
+      return;
+    }
+
     float centerX = 200.0f;
     float centerY = 120.0f;
 
@@ -465,7 +484,7 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
 
     drawCenteredText(centerY + 60.0f, 0.5f, 0.5f, 0.5f,
                      ScreenManager::colorTextMuted(),
-                     Core::I18n::getInstance().get("server.loading"), 400.0f);
+                     Core::I18n::getInstance().get("common.loading"), 400.0f);
     return;
   }
 

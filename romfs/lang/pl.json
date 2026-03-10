@@ -140,6 +140,7 @@
     "server.list": "Serwey",
     "server.member_count": "Użytkowników",
     "server.online_count": "Dostępnych",
+    "server.no_servers": "Brak serwerów, do których dołączono",
     "server.select": "Wybór Serwera",
     "settings.desc.language": "Wybierz język aplikacji.",
     "settings.desc.manage_themes": "Zarządzaj i stosuj własne motywy JSON z karty SD.",

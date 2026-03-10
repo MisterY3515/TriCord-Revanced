@@ -36,7 +36,6 @@ void DmScreen::update() {
 
   if (dms.empty()) {
     refreshDms();
-    return;
   }
 
   for (int i = scrollOffset;

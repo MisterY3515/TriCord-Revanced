@@ -140,6 +140,7 @@
     "server.list": "Server",
     "server.member_count": "Mitglieder",
     "server.online_count": "Online",
+    "server.no_servers": "Keine Server beigetreten",
     "server.select": "Serverauswahl",
     "settings.desc.language": "Wähle die Anzeigesprache für die Anwendung.",
     "settings.desc.manage_themes": "Verwalte und aktiviere benutzerdefinierte JSON-Themes von der SD-Karte.",

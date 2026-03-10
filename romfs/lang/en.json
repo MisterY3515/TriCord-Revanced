@@ -140,6 +140,7 @@
     "server.list": "Servers",
     "server.member_count": "Members",
     "server.online_count": "Online",
+    "server.no_servers": "No servers joined",
     "server.select": "Server Selection",
     "settings.desc.language": "Select the display language for the application.",
     "settings.desc.manage_themes": "Manage and apply custom JSON themes from SD card.",

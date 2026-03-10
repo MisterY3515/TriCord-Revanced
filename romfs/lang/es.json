@@ -140,6 +140,7 @@
     "server.list": "Servidores",
     "server.member_count": "Miembros",
     "server.online_count": "En línea",
+    "server.no_servers": "No te has unido a ningún servidor",
     "server.select": "Seleccionar servidor",
     "settings.desc.language": "Selecciona el idioma de aplicación.",
     "settings.desc.manage_themes": "Gestiona y aplica temas JSON personalizados desde la tarjeta SD.",
