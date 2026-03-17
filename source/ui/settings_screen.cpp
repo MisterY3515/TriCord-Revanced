@@ -4,6 +4,7 @@
 #include "log.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"
+#include "discord/avatar_cache.h"
 #include <3ds.h>
 #include <algorithm>
 
@@ -133,6 +134,38 @@ void SettingsScreen::onEnter() {
     ScreenManager::getInstance().pushScreen(ScreenType::THEME_MANAGER);
   };
   allItems.push_back(customThemeManager);
+ 
+  SettingItem showAvatars;
+  showAvatars.label = TR("settings.show_avatars");
+  showAvatars.description = TR("settings.desc.show_avatars");
+  showAvatars.type = SettingItemType::TOGGLE;
+  showAvatars.value = Config::getInstance().isShowAvatarsEnabled() ? 1 : 0;
+  showAvatars.min = 0;
+  showAvatars.max = 1;
+  showAvatars.valueFormatter = [](int val) {
+    return (val == 1) ? TR("common.enabled") : TR("common.disabled");
+  };
+  showAvatars.onUpdate = [](int val) {
+    Config::getInstance().setShowAvatarsEnabled(val == 1);
+    Discord::AvatarCache::getInstance().clear();
+  };
+  allItems.push_back(showAvatars);
+ 
+  SettingItem showIcons;
+  showIcons.label = TR("settings.show_server_icons");
+  showIcons.description = TR("settings.desc.show_server_icons");
+  showIcons.type = SettingItemType::TOGGLE;
+  showIcons.value = Config::getInstance().isShowServerIconsEnabled() ? 1 : 0;
+  showIcons.min = 0;
+  showIcons.max = 1;
+  showIcons.valueFormatter = [](int val) {
+    return (val == 1) ? TR("common.enabled") : TR("common.disabled");
+  };
+  showIcons.onUpdate = [](int val) {
+    Config::getInstance().setShowServerIconsEnabled(val == 1);
+    Discord::AvatarCache::getInstance().clear();
+  };
+  allItems.push_back(showIcons);
 
   // CHAT
   allItems.push_back(

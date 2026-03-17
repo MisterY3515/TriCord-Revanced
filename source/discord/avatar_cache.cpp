@@ -1,6 +1,7 @@
 #include "discord/avatar_cache.h"
 #include "network/network_manager.h"
 #include "ui/emoji_manager.h"
+#include "core/config.h"
 
 #include "utils/image_utils.h"
 #include <malloc.h>
@@ -100,7 +101,8 @@ C3D_Tex *AvatarCache::getChannelIcon(const std::string &channelId,
 void AvatarCache::prefetchAvatar(const std::string &userId,
                                  const std::string &avatarHash,
                                  const std::string &discriminator) {
-  if (avatarHash.empty() && discriminator.empty())
+  if ((avatarHash.empty() && discriminator.empty()) ||
+      !Config::getInstance().isShowAvatarsEnabled())
     return;
 
   std::lock_guard<std::recursive_mutex> lock(cacheMutex);
@@ -161,7 +163,7 @@ void AvatarCache::prefetchAvatar(const std::string &userId,
 
 void AvatarCache::prefetchGuildIcon(const std::string &guildId,
                                     const std::string &iconHash) {
-  if (iconHash.empty())
+  if (iconHash.empty() || !Config::getInstance().isShowServerIconsEnabled())
     return;
 
   std::lock_guard<std::recursive_mutex> lock(cacheMutex);
@@ -202,8 +204,8 @@ void AvatarCache::prefetchGuildIcon(const std::string &guildId,
 }
 
 void AvatarCache::prefetchChannelIcon(const std::string &channelId,
-                                      const std::string &iconHash) {
-  if (iconHash.empty())
+                                       const std::string &iconHash) {
+  if (iconHash.empty() || !Config::getInstance().isShowServerIconsEnabled())
     return;
 
   std::lock_guard<std::recursive_mutex> lock(cacheMutex);

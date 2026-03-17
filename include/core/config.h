@@ -117,6 +117,11 @@ public:
   void setTypingIndicatorEnabled(bool enabled);
   bool isFileLoggingEnabled() const { return fileLoggingEnabled; }
   void setFileLoggingEnabled(bool enabled);
+ 
+  bool isShowAvatarsEnabled() const { return showAvatars; }
+  void setShowAvatarsEnabled(bool enabled);
+  bool isShowServerIconsEnabled() const { return showServerIcons; }
+  void setShowServerIconsEnabled(bool enabled);
 
   bool isDisclaimerAccepted() const { return disclaimerAccepted; }
   void setDisclaimerAccepted(bool accepted);
@@ -142,6 +147,8 @@ private:
   bool fileLoggingEnabled;
   bool disclaimerAccepted;
   bool sslVerificationDisabled;
+  bool showAvatars;
+  bool showServerIcons;
 
   bool customThemeEnabled;
   std::string selectedThemeName;

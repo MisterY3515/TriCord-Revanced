@@ -24,7 +24,8 @@ Config::Config()
     : currentAccountIndex(-1), timezoneOffset(0), language("en_US"),
       themeType(0), typingIndicatorEnabled(true), fileLoggingEnabled(false),
       disclaimerAccepted(false), sslVerificationDisabled(false),
-      customThemeEnabled(false), selectedThemeName("") {
+      showAvatars(true), showServerIcons(true), customThemeEnabled(false),
+      selectedThemeName("") {
   customTheme = getDarkPreset();
   customTheme.name = "Custom Theme";
 }
@@ -240,6 +241,12 @@ void Config::loadSettings() {
           doc["selected_theme_name"].IsString()) {
         selectedThemeName = doc["selected_theme_name"].GetString();
       }
+      if (doc.HasMember("show_avatars") && doc["show_avatars"].IsBool()) {
+        showAvatars = doc["show_avatars"].GetBool();
+      }
+      if (doc.HasMember("show_server_icons") && doc["show_server_icons"].IsBool()) {
+        showServerIcons = doc["show_server_icons"].GetBool();
+      }
     } else {
       saveSettings();
     }
@@ -276,6 +283,10 @@ void Config::saveSettings() {
   writer.Bool(customThemeEnabled);
   writer.Key("selected_theme_name");
   writer.String(selectedThemeName.c_str());
+  writer.Key("show_avatars");
+  writer.Bool(showAvatars);
+  writer.Key("show_server_icons");
+  writer.Bool(showServerIcons);
   writer.EndObject();
 
   std::string settingsPath = std::string(CONFIG_DIR_PATH) + "/settings.json";
@@ -313,6 +324,16 @@ void Config::setThemeType(int type) {
 
 void Config::setTypingIndicatorEnabled(bool enabled) {
   typingIndicatorEnabled = enabled;
+  saveSettings();
+}
+ 
+void Config::setShowAvatarsEnabled(bool enabled) {
+  showAvatars = enabled;
+  saveSettings();
+}
+ 
+void Config::setShowServerIconsEnabled(bool enabled) {
+  showServerIcons = enabled;
   saveSettings();
 }
 
