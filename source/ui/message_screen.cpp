@@ -1231,7 +1231,8 @@ float MessageScreen::drawAuthorHeader(const Discord::Message &msg, float x,
 
     C2D_DrawRectSolid(avatarX, y, 0.5f, avatarSize, avatarSize,
                       C2D_Color32(80, 80, 100, 255));
-    std::string initial = displayName.empty() ? "?" : displayName.substr(0, 1);
+    std::string initial =
+        Utils::Utf8::getFirstChar(displayName.empty() ? "?" : displayName);
     drawText(avatarX + 10, y + 8, 0.6f, 0.45f, 0.45f,
              C2D_Color32(255, 255, 255, 255), initial);
   }

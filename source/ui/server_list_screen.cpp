@@ -5,6 +5,7 @@
 #include "log.h"
 #include "ui/image_manager.h"
 #include "utils/message_utils.h"
+#include "utils/utf8_utils.h"
 #include <3ds.h>
 #include <algorithm>
 #include <cstdio>
@@ -747,6 +748,10 @@ void ServerListScreen::drawListItem(int index, const ListItem &item, float x,
         } else {
           C2D_DrawRectSolid(mX, mY, 0.51f, miniSize, miniSize,
                             ScreenManager::colorBackgroundLight());
+          std::string miniInit =
+              Utils::Utf8::getFirstChar(g->name.empty() ? "?" : g->name);
+          drawText(mX + miniSize / 2 - 3, mY + miniSize / 2 - 4, 0.52f, 0.3f,
+                   0.3f, ScreenManager::colorText(), miniInit);
         }
       }
     }
@@ -781,7 +786,8 @@ void ServerListScreen::drawListItem(int index, const ListItem &item, float x,
       C2D_DrawRectSolid(iconX, iconY, 0.5f, iconSize, iconSize,
                         ScreenManager::colorBackgroundLight());
 
-      std::string init = item.name.empty() ? "?" : item.name.substr(0, 1);
+      std::string init =
+          Utils::Utf8::getFirstChar(item.name.empty() ? "?" : item.name);
       drawText(iconX + iconSize / 2 - 5, iconY + iconSize / 2 - 6, 0.5f, 0.5f,
                0.5f, ScreenManager::colorText(), init);
     }

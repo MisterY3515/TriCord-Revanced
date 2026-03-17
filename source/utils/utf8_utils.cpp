@@ -168,6 +168,14 @@ std::string getEmojiSequence(const std::string &text, size_t &cursor) {
   return result;
 }
 
+std::string getFirstChar(const std::string &text) {
+  if (text.empty())
+    return "";
+  size_t cursor = 0;
+  decodeNext(text, cursor);
+  return text.substr(0, cursor);
+}
+ 
 std::string sanitizeText(const std::string &text) {
   std::string result;
   result.reserve(text.length());

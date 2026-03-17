@@ -7,6 +7,7 @@
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
 #include "ui/server_list_screen.h"
+#include "utils/utf8_utils.h"
 #include <3ds.h>
 #include <citro2d.h>
 #include <vector>
@@ -508,7 +509,7 @@ void HamburgerMenu::drawAccountCard(float x, float y, float alpha) {
     C2D_DrawRectSolid(avatarX, avatarY, 0.98f, avatarSize, avatarSize,
                       ScreenManager::colorBackgroundLight());
     std::string initial =
-        self.username.empty() ? "?" : self.username.substr(0, 1);
+        Utils::Utf8::getFirstChar(self.username.empty() ? "?" : self.username);
     drawText(avatarX + 10, avatarY + 6, 0.99f, 0.45f, 0.45f,
              ScreenManager::colorWhite(), initial);
   }
