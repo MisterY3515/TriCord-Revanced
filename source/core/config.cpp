@@ -21,8 +21,8 @@
 #include "utils/file_utils.h"
 
 Config::Config()
-    : currentAccountIndex(-1), timezoneOffset(0), language("en"), themeType(0),
-      typingIndicatorEnabled(true), fileLoggingEnabled(false),
+    : currentAccountIndex(-1), timezoneOffset(0), language("en_US"),
+      themeType(0), typingIndicatorEnabled(true), fileLoggingEnabled(false),
       disclaimerAccepted(false), sslVerificationDisabled(false),
       customThemeEnabled(false), selectedThemeName("") {
   customTheme = getDarkPreset();
@@ -247,7 +247,9 @@ void Config::loadSettings() {
     saveSettings();
   }
 
-  Core::I18n::getInstance().loadLanguage(language.empty() ? "en" : language);
+  if (!Core::I18n::getInstance().loadLanguage(language.empty() ? "en_US" : language)) {
+    Core::I18n::getInstance().loadLanguage("en_US");
+  }
   Logger::setFileLoggingEnabled(fileLoggingEnabled);
 }
 

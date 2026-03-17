@@ -9,7 +9,7 @@
 
 namespace Core {
 
-void I18n::init() { loadLanguage("en"); }
+void I18n::init() { loadLanguage("en_US"); }
 
 bool I18n::loadLanguage(const std::string &langCode) {
   std::string path = "romfs:/lang/" + langCode + ".json";

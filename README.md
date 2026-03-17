@@ -112,7 +112,7 @@ This appears to be due to SSL verification failing for some reason. In v0.4.0 or
 Please report it by opening a [GitHub Issue](https://github.com/2b-zipper/TriCord/issues) or by visiting the bug-reports channel in our Discord server.
 
 ### I want to add a translation
-You are more than welcome to! Please translate [en.json](https://github.com/2b-zipper/TriCord/blob/main/romfs/lang/en.json) into the language you want to add and submit a pull request.
+You are more than welcome to! Please translate [en_US.json](https://github.com/2b-zipper/TriCord/blob/main/romfs/lang/en_US.json) into the language you want to add and submit a pull request.
 
 ## License
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.

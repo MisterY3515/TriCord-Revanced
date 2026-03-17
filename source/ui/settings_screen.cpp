@@ -30,15 +30,16 @@ void SettingsScreen::onEnter() {
   language.description = TR("settings.desc.language");
   language.type = SettingItemType::INTEGER;
   std::string langCode = Config::getInstance().getLanguage();
-  language.value = (langCode == "ja")   ? 1
-                   : (langCode == "fr") ? 2
-                   : (langCode == "es") ? 3
-                   : (langCode == "it") ? 4
-                   : (langCode == "de") ? 5
-                   : (langCode == "pl") ? 6
-                                        : 0;
+  language.value = (langCode == "ja_JP")   ? 1
+                   : (langCode == "fr_FR") ? 2
+                   : (langCode == "es_ES") ? 3
+                   : (langCode == "it_IT") ? 4
+                   : (langCode == "de_DE") ? 5
+                   : (langCode == "pl_PL") ? 6
+                   : (langCode == "pt_BR") ? 7
+                                           : 0;
   language.min = 0;
-  language.max = 6;
+  language.max = 7;
   language.valueFormatter = [](int val) {
     if (val == 0)
       return "English";
@@ -54,16 +55,19 @@ void SettingsScreen::onEnter() {
       return "Deutsch";
     if (val == 6)
       return "Polski";
+    if (val == 7)
+      return "Português (Brasil)";
     return "English";
   };
   language.onUpdate = [this](int val) {
-    std::string newLang = (val == 1)   ? "ja"
-                          : (val == 2) ? "fr"
-                          : (val == 3) ? "es"
-                          : (val == 4) ? "it"
-                          : (val == 5) ? "de"
-                          : (val == 6) ? "pl"
-                                       : "en";
+    std::string newLang = (val == 1)   ? "ja_JP"
+                          : (val == 2) ? "fr_FR"
+                          : (val == 3) ? "es_ES"
+                          : (val == 4) ? "it_IT"
+                          : (val == 5) ? "de_DE"
+                          : (val == 6) ? "pl_PL"
+                          : (val == 7) ? "pt_BR"
+                                       : "en_US";
     Config::getInstance().setLanguage(newLang);
     ScreenManager::getInstance().getHamburgerMenu().refreshStrings();
     this->scheduleRefresh = true;
