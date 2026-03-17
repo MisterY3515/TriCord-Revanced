@@ -63,6 +63,8 @@ int main(int argc, char **argv) {
   }
 
   UI::ScreenManager::getInstance().shutdown();
+  UI::ImageManager::getInstance().shutdown();
+  Discord::DiscordClient::getInstance().shutdown();
   Network::NetworkManager::getInstance().shutdown();
   psExit();
   romfsExit();
