@@ -54,11 +54,14 @@ void NetworkManager::init(int interactiveCount, int backgroundCount) {
 		interactiveWorkers.emplace_back(&NetworkManager::workerThread, this, RequestPriority::INTERACTIVE);
 	}
 
+	realtimeWorker = std::thread(&NetworkManager::workerThread, this, RequestPriority::REALTIME);
+
 	for (int i = 0; i < backgroundCount; ++i) {
 		backgroundWorkers.emplace_back(&NetworkManager::workerThread, this, RequestPriority::BACKGROUND);
 	}
 
-	Logger::log("NetworkManager initialized: %d Interactive, %d Background threads", interactiveCount, backgroundCount);
+	Logger::log("NetworkManager initialized: 1 Realtime, %d Interactive, %d Background threads", interactiveCount,
+	            backgroundCount);
 }
 
 void NetworkManager::shutdown() {
@@ -68,6 +71,9 @@ void NetworkManager::shutdown() {
 	}
 	condition.notify_all();
 
+	if (realtimeWorker.joinable()) {
+		realtimeWorker.join();
+	}
 	for (std::thread &worker : interactiveWorkers) {
 		if (worker.joinable()) {
 			worker.join();
@@ -133,6 +139,10 @@ void NetworkManager::workerThread(RequestPriority type) {
 					return true;
 				}
 
+				if (type == RequestPriority::REALTIME) {
+					return !realtimeQueue.empty();
+				}
+
 				bool hasHighPriority = !realtimeQueue.empty() || !interactiveQueue.empty();
 				bool hasBackground = !backgroundQueue.empty();
 
@@ -155,7 +165,8 @@ void NetworkManager::workerThread(RequestPriority type) {
 				req = std::move(interactiveQueue.front());
 				interactiveQueue.pop();
 				hasRequest = true;
-			} else if (!backgroundQueue.empty() && type != RequestPriority::INTERACTIVE) {
+			} else if (!backgroundQueue.empty() && type != RequestPriority::REALTIME &&
+			           type != RequestPriority::INTERACTIVE) {
 				req = std::move(backgroundQueue.front());
 				backgroundQueue.pop();
 				hasRequest = true;

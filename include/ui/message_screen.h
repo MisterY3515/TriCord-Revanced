@@ -95,6 +95,12 @@ class MessageScreen : public Screen {
 	void ensureSelectionVisible();
 	void catchUpMessages();
 
+	struct KeyboardResult {
+		int button;
+		std::string text;
+	};
+	KeyboardResult runKeyboard(const std::string &hint, const std::string &initialText = "");
+
 	void renderReactionIcon();
 };
 

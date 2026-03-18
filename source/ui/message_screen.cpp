@@ -110,6 +110,11 @@ void MessageScreen::onEnter() {
 				found = true;
 				break;
 			}
+			if (m.id.substr(0, 8) == "pending_" && !msg.nonce.empty() && m.nonce == msg.nonce) {
+				m = msg;
+				found = true;
+				break;
+			}
 		}
 		if (!found) {
 			this->messages.push_back(msg);
@@ -321,7 +326,7 @@ bool MessageScreen::hidesMenu() const { return bottomMode == BottomScreenMode::E
 void MessageScreen::update() {
 	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
 	std::lock_guard<std::recursive_mutex> clientLock(client.getMutex());
-	std::lock_guard<std::recursive_mutex> updateLock(messageMutex);
+	std::unique_lock<std::recursive_mutex> updateLock(messageMutex);
 
 	uint32_t currentGen = ImageManager::getInstance().getGeneration();
 	if (currentGen != lastImageGeneration) {
@@ -423,92 +428,70 @@ void MessageScreen::update() {
 				}
 			} else if (action == "Reply") {
 				if (selectedIndex >= 0 && selectedIndex < (int)messages.size()) {
-					const auto &msg = messages[selectedIndex];
-					SwkbdState swkbd;
-					char mybuf[2000];
-					mybuf[0] = '\0';
-					swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
-					swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT | SWKBD_DARKEN_TOP_SCREEN | SWKBD_ALLOW_HOME |
-					                             SWKBD_ALLOW_RESET | SWKBD_ALLOW_POWER | SWKBD_MULTILINE);
-					swkbdSetHintText(&swkbd, TR("common.reply_hint").c_str());
-					swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, TR("common.cancel").c_str(), false);
-					swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, TR("common.send").c_str(), true);
-					SwkbdButton button = swkbdInputText(&swkbd, mybuf, sizeof(mybuf));
+					std::string targetMsgId = messages[selectedIndex].id;
+					std::string targetAuthorName = messages[selectedIndex].author.global_name.empty()
+					                                   ? messages[selectedIndex].author.username
+					                                   : messages[selectedIndex].author.global_name;
 
-					if (button == SWKBD_BUTTON_RIGHT) {
-						std::string content = mybuf;
-						size_t first = content.find_first_not_of(" \n\r\t");
-						if (first != std::string::npos) {
-							content = content.substr(first, content.find_last_not_of(" \n\r\t") - first + 1);
-						} else {
-							content = "";
-						}
+					updateLock.unlock();
+					auto res = runKeyboard(TR("common.reply_hint"));
+					updateLock.lock();
 
-						if (content.empty()) {
-							return;
-						}
-
+					if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty()) {
 						Discord::Message replyMsg;
-						replyMsg.id = "pending_" + std::to_string(time(NULL));
-						replyMsg.content = content;
+						replyMsg.id = "pending_" + std::to_string(osGetTime());
+						replyMsg.nonce = replyMsg.id;
+						replyMsg.content = res.text;
 						replyMsg.channelId = channelId;
 						replyMsg.author = client.getCurrentUser();
 						replyMsg.timestamp = TR("message.status.sending");
 						replyMsg.type = 19;
-						replyMsg.referencedAuthorName =
-						    msg.author.global_name.empty() ? msg.author.username : msg.author.global_name;
+						replyMsg.referencedAuthorName = targetAuthorName;
 
 						this->messages.push_back(replyMsg);
 						rebuildLayoutCache();
 						scrollToBottom();
 
-						client.sendReply(channelId, content, msg.id,
-						                 [this, replyMsgId = replyMsg.id](const Discord::Message &sentMsg, bool success,
-						                                                  int errorCode) {
-							                 std::lock_guard<std::recursive_mutex> lock(messageMutex);
-							                 for (auto &m : this->messages) {
-								                 if (m.id == replyMsgId) {
-									                 if (success) {
-										                 m = sentMsg;
-										                 Logger::log("Updated pending reply with confirmed ID: %s",
-										                             sentMsg.id.c_str());
-									                 } else {
-										                 m.timestamp = TR("message.status.failed");
-										                 Logger::log("Reply failed with code: %d", errorCode);
-									                 }
-									                 break;
-								                 }
-							                 }
-						                 });
+						client.sendReply(
+						    channelId, res.text, targetMsgId,
+						    [this, replyMsgId = replyMsg.id](const Discord::Message &sentMsg, bool success,
+						                                     int errorCode) {
+							    std::lock_guard<std::recursive_mutex> lock(messageMutex);
+							    for (auto &m : this->messages) {
+								    if (m.id == replyMsgId) {
+									    if (success) {
+										    m = sentMsg;
+										    Logger::log("Updated pending reply with confirmed ID: %s",
+										                sentMsg.id.c_str());
+									    } else {
+										    m.timestamp = TR("message.status.failed");
+										    Logger::log("Reply failed with code: %d", errorCode);
+									    }
+									    break;
+								    }
+							    }
+							    rebuildLayoutCache();
+							    scrollToBottom();
+						    },
+						    replyMsg.nonce);
 					}
 				}
 			} else if (action == "Edit") {
 				if (selectedIndex >= 0 && selectedIndex < (int)messages.size()) {
-					const auto &msg = messages[selectedIndex];
-					SwkbdState swkbd;
-					char editbuf[2000];
-					strncpy(editbuf, msg.content.c_str(), sizeof(editbuf) - 1);
-					editbuf[sizeof(editbuf) - 1] = '\0';
-					swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
-					swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT | SWKBD_DARKEN_TOP_SCREEN | SWKBD_ALLOW_HOME |
-					                             SWKBD_ALLOW_RESET | SWKBD_ALLOW_POWER | SWKBD_MULTILINE);
-					swkbdSetInitialText(&swkbd, editbuf);
-					swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, TR("common.cancel").c_str(), false);
-					swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, TR("common.save").c_str(), true);
-					SwkbdButton button = swkbdInputText(&swkbd, editbuf, sizeof(editbuf));
+					std::string editId = messages[selectedIndex].id;
+					std::string oldContent = messages[selectedIndex].content;
 
-					if (button == SWKBD_BUTTON_RIGHT) {
-						std::string newContent = editbuf;
-						size_t first = newContent.find_first_not_of(" \n\r\t");
-						if (first != std::string::npos) {
-							newContent = newContent.substr(first, newContent.find_last_not_of(" \n\r\t") - first + 1);
-						} else {
-							newContent = "";
-						}
+					updateLock.unlock();
+					auto res = runKeyboard(TR("common.message_hint"), oldContent);
+					updateLock.lock();
 
-						if (!newContent.empty() && newContent != msg.content) {
-							Discord::DiscordClient::getInstance().editMessage(channelId, msg.id, newContent);
-							this->messages[selectedIndex].content = newContent;
+					if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty() && res.text != oldContent) {
+						Discord::DiscordClient::getInstance().editMessage(channelId, editId, res.text);
+						for (auto &msg : messages) {
+							if (msg.id == editId) {
+								msg.content = res.text;
+								break;
+							}
 						}
 					}
 				}
@@ -692,7 +675,9 @@ void MessageScreen::update() {
 		}
 
 		if (kDown & KEY_Y) {
+			updateLock.unlock();
 			openKeyboard();
+			updateLock.lock();
 		}
 
 		if ((kDown & KEY_X) && !(kHeld & KEY_SELECT) && !this->messages.empty()) {
@@ -1845,68 +1830,74 @@ void MessageScreen::openKeyboard() {
 
 	client.triggerTypingIndicator(channelId);
 
+	auto res = runKeyboard(TR("common.message_hint"));
+
+	if (res.button == SWKBD_BUTTON_RIGHT && !res.text.empty()) {
+		std::lock_guard<std::recursive_mutex> lock(messageMutex);
+
+		Discord::Message optimisticMsg;
+		optimisticMsg.id = "pending_" + std::to_string(osGetTime());
+		optimisticMsg.nonce = optimisticMsg.id;
+		optimisticMsg.content = res.text;
+		optimisticMsg.channelId = channelId;
+		optimisticMsg.author = client.getCurrentUser();
+		optimisticMsg.timestamp = TR("message.status.sending");
+		optimisticMsg.type = 0;
+
+		this->messages.push_back(optimisticMsg);
+		rebuildLayoutCache();
+		scrollToBottom();
+
+		client.sendMessage(
+		    channelId, res.text,
+		    [this, pendingId = optimisticMsg.id](const Discord::Message &sentMsg, bool success, int errorCode) {
+			    std::lock_guard<std::recursive_mutex> lock(messageMutex);
+			    for (auto &msg : this->messages) {
+				    if (msg.id == pendingId) {
+					    if (success) {
+						    msg = sentMsg;
+						    Logger::log("Updated pending message with confirmed ID: %s", sentMsg.id.c_str());
+					    } else {
+						    msg.timestamp = TR("message.status.failed");
+						    Logger::log("Message send failed with code: %d", errorCode);
+					    }
+					    break;
+				    }
+			    }
+			    rebuildLayoutCache();
+			    scrollToBottom();
+		    },
+		    optimisticMsg.nonce);
+	}
+}
+
+MessageScreen::KeyboardResult MessageScreen::runKeyboard(const std::string &hint, const std::string &initialText) {
 	SwkbdState swkbd;
 	char mybuf[2000];
-	mybuf[0] = '\0';
-
 	swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
 	swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT | SWKBD_DARKEN_TOP_SCREEN | SWKBD_ALLOW_HOME | SWKBD_ALLOW_RESET |
 	                             SWKBD_ALLOW_POWER | SWKBD_MULTILINE);
-	swkbdSetInitialText(&swkbd, mybuf);
-	swkbdSetHintText(&swkbd, TR("common.message_hint").c_str());
+
+	if (!initialText.empty()) {
+		swkbdSetInitialText(&swkbd, initialText.c_str());
+	}
+	swkbdSetHintText(&swkbd, hint.c_str());
 	swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, TR("common.cancel").c_str(), false);
 	swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, TR("common.send").c_str(), true);
 
 	SwkbdButton button = swkbdInputText(&swkbd, mybuf, sizeof(mybuf));
+	std::string content = (button == SWKBD_BUTTON_RIGHT) ? mybuf : "";
 
-	if (button == SWKBD_BUTTON_RIGHT) {
-		if (isForumView) {
-			Logger::log("Cannot send messages to Forum directly");
-			return;
-		}
-		std::string content = mybuf;
+	if (!content.empty()) {
 		size_t first = content.find_first_not_of(" \n\r\t");
 		if (first != std::string::npos) {
 			content = content.substr(first, content.find_last_not_of(" \n\r\t") - first + 1);
 		} else {
 			content = "";
 		}
-
-		if (!content.empty()) {
-			Logger::log("Sending message: %s", content.c_str());
-
-			Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
-
-			Discord::Message optimisticMsg;
-			optimisticMsg.id = "pending_" + std::to_string(osGetTime());
-			optimisticMsg.content = content;
-			optimisticMsg.channelId = channelId;
-			optimisticMsg.author = client.getCurrentUser();
-			optimisticMsg.timestamp = TR("message.status.sending");
-
-			this->messages.push_back(optimisticMsg);
-			rebuildLayoutCache();
-			scrollToBottom();
-
-			client.sendMessage(
-			    channelId, content,
-			    [this, pendingId = optimisticMsg.id](const Discord::Message &sentMsg, bool success, int errorCode) {
-				    std::lock_guard<std::recursive_mutex> lock(messageMutex);
-				    for (auto &msg : this->messages) {
-					    if (msg.id == pendingId) {
-						    if (success) {
-							    msg = sentMsg;
-							    Logger::log("Updated pending message with confirmed ID: %s", sentMsg.id.c_str());
-						    } else {
-							    msg.timestamp = TR("message.status.failed");
-							    Logger::log("Message send failed with code: %d", errorCode);
-						    }
-						    break;
-					    }
-				    }
-			    });
-		}
 	}
+
+	return {(int)button, content};
 }
 
 void MessageScreen::showMessageOptions() {
@@ -2023,13 +2014,15 @@ void MessageScreen::rebuildLayoutCache() {
 	for (size_t i = 0; i < this->messages.size(); i++) {
 		bool showHeader = (i == 0) || !MessageUtils::canGroupWithPrevious(this->messages[i], this->messages[i - 1]);
 
-		if (this->messages[i].timestamp != "Sending...") {
+		if (this->messages[i].id.substr(0, 8) != "pending_") {
 			std::string currDate = MessageUtils::getLocalDateString(this->messages[i].timestamp);
-
-			if (currDate != lastDate) {
-				y += 28.0f;
-				lastDate = currDate;
-				showHeader = true;
+			if (this->messages[i].timestamp != TR("message.status.sending") &&
+			    this->messages[i].timestamp != TR("message.status.failed")) {
+				if (currDate != lastDate) {
+					y += 28.0f;
+					lastDate = currDate;
+					showHeader = true;
+				}
 			}
 		}
 

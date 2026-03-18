@@ -956,6 +956,7 @@ Message DiscordClient::parseSingleMessage(const rapidjson::Value &d) {
 	msg.timestamp = Utils::Json::getString(d, "timestamp");
 	msg.edited_timestamp = Utils::Json::getString(d, "edited_timestamp");
 	msg.channelId = Utils::Json::getString(d, "channel_id");
+	msg.nonce = Utils::Json::getString(d, "nonce");
 
 	if (d.HasMember("author") && d["author"].IsObject()) {
 		const rapidjson::Value &author = d["author"];
@@ -1739,7 +1740,18 @@ uint64_t DiscordClient::computeOverwrites(uint64_t basePermissions, const std::s
 	return permissions;
 }
 
-void DiscordClient::sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb) {
+void DiscordClient::sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb,
+                                const std::string &nonce) {
+	postMessage(channelId, content, nonce, "", cb);
+}
+
+void DiscordClient::sendReply(const std::string &channelId, const std::string &content, const std::string &replyId,
+                              SendMessageCallback cb, const std::string &nonce) {
+	postMessage(channelId, content, nonce, replyId, cb);
+}
+
+void DiscordClient::postMessage(const std::string &channelId, const std::string &content, const std::string &nonce,
+                                const std::string &replyId, SendMessageCallback cb) {
 	if (token.empty() || channelId.empty() || content.empty()) {
 		return;
 	}
@@ -1751,83 +1763,45 @@ void DiscordClient::sendMessage(const std::string &channelId, const std::string 
 	writer.StartObject();
 	writer.Key("content");
 	writer.String(content.c_str());
-	writer.Key("flags");
-	writer.Int(0);
+
 	writer.Key("nonce");
-
-	writer.String(std::to_string(osGetTime()).c_str());
-	writer.Key("tts");
-	writer.Bool(false);
-	writer.EndObject();
-
-	Network::NetworkManager::getInstance().enqueue(url, "POST", s.GetString(), Network::RequestPriority::REALTIME,
-	                                               [this, cb](const Network::HttpResponse &resp) {
-		                                               if (!resp.success || resp.statusCode >= 400) {
-			                                               Logger::log("Failed to send message: %d (%s)",
-			                                                           (int)resp.statusCode, resp.error.c_str());
-			                                               if (cb) {
-				                                               cb(Message(), false, (int)resp.statusCode);
-			                                               }
-			                                               return;
-		                                               }
-
-		                                               if (cb) {
-			                                               Message msg = parseSingleMessage(resp.body);
-			                                               cb(msg, true, (int)resp.statusCode);
-		                                               }
-	                                               },
-	                                               {{"Authorization", token},
-	                                                {"Content-Type", "application/json"},
-	                                                {"X-Context-Properties", "eyJsb2NhdGlvbiI6ImNoYXRfaW5wdXQifQ=="}});
-}
-
-void DiscordClient::sendReply(const std::string &channelId, const std::string &content,
-                              const std::string &replyToMessageId, SendMessageCallback cb) {
-	if (token.empty() || channelId.empty() || content.empty() || replyToMessageId.empty()) {
-		return;
+	if (!nonce.empty()) {
+		writer.String(nonce.c_str());
+	} else {
+		writer.String(std::to_string(osGetTime()).c_str());
 	}
 
-	std::string url = "https://discord.com/api/v10/channels/" + channelId + "/messages";
+	if (!replyId.empty()) {
+		writer.Key("message_reference");
+		writer.StartObject();
+		writer.Key("message_id");
+		writer.String(replyId.c_str());
+		writer.EndObject();
+	}
 
-	rapidjson::StringBuffer s;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-	writer.StartObject();
-	writer.Key("content");
-	writer.String(content.c_str());
-	writer.Key("flags");
-	writer.Int(0);
-	writer.Key("nonce");
-	writer.String(std::to_string(osGetTime()).c_str());
 	writer.Key("tts");
 	writer.Bool(false);
-
-	writer.Key("message_reference");
-	writer.StartObject();
-	writer.Key("message_id");
-	writer.String(replyToMessageId.c_str());
+	writer.Key("flags");
+	writer.Int(0);
 	writer.EndObject();
 
-	writer.EndObject();
-
-	Network::NetworkManager::getInstance().enqueue(url, "POST", s.GetString(), Network::RequestPriority::REALTIME,
-	                                               [this, cb](const Network::HttpResponse &resp) {
-		                                               if (!resp.success || resp.statusCode >= 400) {
-			                                               Logger::log("Failed to send reply: %d (%s)",
-			                                                           (int)resp.statusCode, resp.error.c_str());
-			                                               if (cb) {
-				                                               cb(Message(), false, (int)resp.statusCode);
-			                                               }
-			                                               return;
-		                                               }
-
-		                                               if (cb) {
-			                                               Message msg = parseSingleMessage(resp.body);
-			                                               cb(msg, true, (int)resp.statusCode);
-		                                               }
-	                                               },
-	                                               {{"Authorization", token},
-	                                                {"Content-Type", "application/json"},
-	                                                {"X-Context-Properties", "eyJsb2NhdGlvbiI6ImNoYXRfaW5wdXQifQ=="}});
+	Network::NetworkManager::getInstance().enqueue(
+	    url, "POST", s.GetString(), Network::RequestPriority::REALTIME,
+	    [this, cb](const Network::HttpResponse &resp) {
+		    if (!resp.success || resp.statusCode >= 400) {
+			    Logger::log("Failed to post message: %d (%s)", (int)resp.statusCode, resp.error.c_str());
+			    if (cb) {
+				    cb(Message(), false, (int)resp.statusCode);
+			    }
+			    return;
+		    }
+		    if (cb) {
+			    cb(parseSingleMessage(resp.body), true, (int)resp.statusCode);
+		    }
+	    },
+	    {{"Authorization", token},
+	     {"Content-Type", "application/json"},
+	     {"X-Context-Properties", "eyJsb2NhdGlvbiI6ImNoYXRfaW5wdXQifQ=="}});
 }
 
 void DiscordClient::sendMessageAsync(const std::string &channelId, const std::string &content, SuccessCallback cb) {

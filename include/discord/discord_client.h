@@ -118,11 +118,11 @@ class DiscordClient {
 	void fetchMessagesBeforeAsync(const std::string &channelId, const std::string &beforeId, int limit,
 	                              MessagesCallback cb);
 	void fetchMessage(const std::string &channelId, const std::string &messageId, SingleMessageCallback cb);
-	void sendMessage(const std::string &channelId, const std::string &content);
-	void sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb);
+	void sendMessage(const std::string &channelId, const std::string &content, SendMessageCallback cb = nullptr,
+	                 const std::string &nonce = "");
 	void sendMessageAsync(const std::string &channelId, const std::string &content, SuccessCallback cb);
 	void sendReply(const std::string &channelId, const std::string &content, const std::string &replyId,
-	               SendMessageCallback cb);
+	               SendMessageCallback cb = nullptr, const std::string &nonce = "");
 	bool editMessage(const std::string &channelId, const std::string &messageId, const std::string &content);
 	void editMessageAsync(const std::string &channelId, const std::string &messageId, const std::string &content,
 	                      SuccessCallback cb);
@@ -204,6 +204,9 @@ class DiscordClient {
 	void parseGuildObject(const rapidjson::Value &gObj, Guild &guild, const std::string &userId);
 	void parseChannelObject(const rapidjson::Value &cObj, Channel &channel);
 	void parseOverwrites(const rapidjson::Value &ows, std::vector<Overwrite> &overwrites);
+
+	void postMessage(const std::string &channelId, const std::string &content, const std::string &nonce,
+	                 const std::string &replyId, SendMessageCallback cb);
 
 	void setState(ConnectionState newState, const std::string &message = "");
 	void setStatus(const std::string &message);

@@ -49,6 +49,8 @@ class NetworkManager {
 
 	void workerThread(RequestPriority type);
 
+	std::thread realtimeWorker;
+
 	std::vector<std::thread> interactiveWorkers;
 	std::vector<std::thread> backgroundWorkers;
 

@@ -167,12 +167,13 @@ struct Message {
 	std::string referencedAuthorNickname;
 	int referencedAuthorColor = 0;
 	std::string referencedContent;
-	int type;
+	int type = 0;
 	std::string edited_timestamp;
 
 	bool isForwarded = false;
 	std::string originalAuthorName;
 	std::string originalAuthorAvatar;
+	std::string nonce;
 };
 
 } // namespace Discord
