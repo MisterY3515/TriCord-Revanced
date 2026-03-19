@@ -53,6 +53,9 @@ void LoginScreen::onEnter() {
 
 void LoginScreen::onExit() {
 	Logger::log("[LoginScreen] Exited");
+	Discord::RemoteAuth::getInstance().setOnStateChange(nullptr);
+	Discord::RemoteAuth::getInstance().setOnUserScanned(nullptr);
+	Discord::RemoteAuth::getInstance().setOnTokenReceived(nullptr);
 	Discord::RemoteAuth::getInstance().cancel();
 }
 

@@ -26,6 +26,9 @@ RemoteAuth::RemoteAuth()
 
 RemoteAuth::~RemoteAuth() {
 	cancel();
+	if (workerThread.joinable()) {
+		workerThread.join();
+	}
 	cleanupRSA();
 }
 
