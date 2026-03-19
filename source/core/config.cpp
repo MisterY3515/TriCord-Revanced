@@ -389,125 +389,12 @@ void Config::updateCurrentAccountName(const std::string &name) {
 }
 
 void Config::loadTheme() {
-	std::string themePath = std::string(CONFIG_DIR_PATH) + "/theme.json";
-	std::vector<char> buffer = Utils::File::readFile(themePath);
-
-	// Use current preset as fallback
-	Theme base = (themeType == 1) ? getLightPreset() : getDarkPreset();
-	customTheme = base;
-
-	if (!buffer.empty()) {
-		rapidjson::Document doc;
-		doc.Parse(buffer.data());
-
-		if (!doc.HasParseError() && doc.IsObject()) {
-			if (doc.HasMember("name") && doc["name"].IsString()) {
-				customTheme.name = doc["name"].GetString();
-			}
-
-			if (doc.HasMember("description") && doc["description"].IsString()) {
-				customTheme.description = doc["description"].GetString();
-			}
-
-			if (doc.HasMember("author") && doc["author"].IsString()) {
-				customTheme.author = doc["author"].GetString();
-			}
-
-			auto loadCol = [&](const char *category, const char *key, u32 &target) {
-				if (doc.HasMember("colors") && doc["colors"].IsObject()) {
-					const auto &colors = doc["colors"];
-					if (colors.HasMember(category) && colors[category].IsObject()) {
-						const auto &cat = colors[category];
-						if (cat.HasMember(key) && cat[key].IsString()) {
-							target = Utils::Color::hexToColor(cat[key].GetString());
-						}
-					}
-				}
-			};
-
-			loadCol("ui", "background", customTheme.bg);
-			loadCol("ui", "background_dark", customTheme.bg_dark);
-			loadCol("ui", "background_light", customTheme.bg_light);
-			loadCol("ui", "accent", customTheme.accent);
-			loadCol("ui", "selection", customTheme.selection);
-			loadCol("ui", "separator", customTheme.separator);
-			loadCol("ui", "header_border", customTheme.header_border);
-			loadCol("ui", "overlay", customTheme.overlay);
-			loadCol("ui", "pure_white", customTheme.pure_white);
-
-			loadCol("text", "main", customTheme.text);
-			loadCol("text", "muted", customTheme.text_muted);
-			loadCol("text", "link", customTheme.link);
-
-			loadCol("discord", "embed_bg", customTheme.embed_bg);
-			loadCol("discord", "embed_media_bg", customTheme.embed_media_bg);
-			loadCol("discord", "reaction_bg", customTheme.reaction_bg);
-			loadCol("discord", "reaction_me_bg", customTheme.reaction_me_bg);
-			loadCol("discord", "input_bg", customTheme.input_bg);
-
-			loadCol("status", "success", customTheme.success);
-			loadCol("status", "error", customTheme.error);
-		} else {
-			saveTheme();
-		}
-	} else {
-		saveTheme();
+	customTheme = (themeType == 1) ? getLightPreset() : getDarkPreset();
+	if (customThemeEnabled && !selectedThemeName.empty()) {
+		loadThemeFromFile(selectedThemeName);
 	}
 }
 
-void Config::saveTheme() {
-	rapidjson::StringBuffer s;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
-
-	writer.StartObject();
-	writer.Key("name");
-	writer.String(customTheme.name.c_str());
-
-	writer.Key("author");
-	writer.String(customTheme.author.c_str());
-
-	writer.Key("description");
-	writer.String(customTheme.description.c_str());
-
-	writer.Key("colors");
-	writer.StartObject();
-
-	auto writeCategory = [&](const char *name, const std::vector<std::pair<const char *, u32>> &cols) {
-		writer.Key(name);
-		writer.StartObject();
-		for (const auto &p : cols) {
-			writer.Key(p.first);
-			writer.String(Utils::Color::colorToHex(p.second).c_str());
-		}
-		writer.EndObject();
-	};
-
-	writeCategory("ui", {{"background", customTheme.bg},
-	                     {"background_dark", customTheme.bg_dark},
-	                     {"background_light", customTheme.bg_light},
-	                     {"accent", customTheme.accent},
-	                     {"selection", customTheme.selection},
-	                     {"separator", customTheme.separator},
-	                     {"header_border", customTheme.header_border},
-	                     {"overlay", customTheme.overlay},
-	                     {"pure_white", customTheme.pure_white}});
-
-	writeCategory("text", {{"main", customTheme.text}, {"muted", customTheme.text_muted}, {"link", customTheme.link}});
-
-	writeCategory("discord", {{"embed_bg", customTheme.embed_bg},
-	                          {"embed_media_bg", customTheme.embed_media_bg},
-	                          {"reaction_bg", customTheme.reaction_bg},
-	                          {"reaction_me_bg", customTheme.reaction_me_bg},
-	                          {"input_bg", customTheme.input_bg}});
-
-	writeCategory("status", {{"success", customTheme.success}, {"error", customTheme.error}});
-
-	writer.EndObject(); // colors
-	writer.EndObject();
-
-	std::string themePath = std::string(CONFIG_DIR_PATH) + "/theme.json";
-	Utils::File::writeFile(themePath, s.GetString());
-}
 
 void Config::setCustomThemeEnabled(bool enabled) {
 	customThemeEnabled = enabled;
@@ -605,7 +492,6 @@ bool Config::loadThemeFromFile(const std::string &name) {
 
 	customTheme = newTheme;
 	selectedThemeName = name;
-	saveTheme(); // Cache to theme.json
 	saveSettings();
 	return true;
 }

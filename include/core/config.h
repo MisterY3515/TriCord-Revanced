@@ -100,10 +100,7 @@ class Config {
 	}
 
 	const Theme &getTheme() const;
-	void setCustomTheme(const Theme &theme) {
-		customTheme = theme;
-		saveTheme();
-	}
+	void setCustomTheme(const Theme &theme) { customTheme = theme; }
 
 	bool isCustomThemeEnabled() const { return customThemeEnabled; }
 	void setCustomThemeEnabled(bool enabled);
@@ -130,7 +127,6 @@ class Config {
 	void setSslVerificationDisabled(bool disabled);
 
 	void loadTheme();
-	void saveTheme();
 
 	std::vector<std::string> getAvailableThemes();
 	bool loadThemeFromFile(const std::string &name);
