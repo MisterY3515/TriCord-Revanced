@@ -479,9 +479,14 @@ bool WebSocketClient::receiveFrame(std::string &message) {
 		message = std::string(payload.begin(), payload.end());
 		return true;
 
-	case WebSocketOpcode::CLOSE:
-		disconnect();
+	case WebSocketOpcode::CLOSE: {
+		int closeCode = 1000;
+		if (payload.size() >= 2) {
+			closeCode = (payload[0] << 8) | payload[1];
+		}
+		disconnect(closeCode);
 		return false;
+	}
 
 	case WebSocketOpcode::PING:
 		sendFrame(WebSocketOpcode::PONG, payload.data(), payload.size());

@@ -104,6 +104,16 @@ void LoginScreen::update() {
 		loadingAngle = 360.0f * t;
 	}
 
+	if (client.wasAuthFailed()) {
+		client.clearAuthFailed();
+		auto &cfg = Config::getInstance();
+		cfg.removeAccount(cfg.getCurrentAccountIndex());
+		if (cfg.getToken().empty()) {
+			startQRLogin();
+		}
+		return;
+	}
+
 	bool shouldAutoConnect =
 	    !Config::getInstance().getToken().empty() &&
 	    (Discord::RemoteAuth::getInstance().getState() != Discord::RemoteAuthState::CONNECTING &&

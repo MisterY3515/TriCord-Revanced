@@ -3,6 +3,7 @@
 
 #include "discord/types.h"
 #include "network/websocket_client.h"
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -65,6 +66,9 @@ class DiscordClient {
 	}
 	bool isReady() const { return state == ConnectionState::READY; }
 	ConnectionState getState() const { return state; }
+
+	bool wasAuthFailed() const { return authFailed.load(); }
+	void clearAuthFailed() { authFailed.store(false); }
 
 	std::recursive_mutex &getMutex() { return clientMutex; }
 	std::string getStatusMessage() {
@@ -230,6 +234,7 @@ class DiscordClient {
 
 	bool isConnecting;
 	bool stopWorker;
+	std::atomic<bool> authFailed{false};
 	std::thread workerThread;
 	std::thread networkThread;
 

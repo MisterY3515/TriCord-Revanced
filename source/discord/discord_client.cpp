@@ -120,6 +120,7 @@ bool DiscordClient::connect(const std::string &token) {
 	}
 
 	this->token = token;
+	authFailed.store(false);
 	isConnecting = true;
 	setState(ConnectionState::CONNECTING, "Starting network thread...");
 
@@ -201,6 +202,10 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 		ws.setOnClose([this](int code, const std::string &reason) {
 			Logger::log("[Gateway] Closed: %d %s", code, reason.c_str());
 			setStatus("Disconnected: " + std::to_string(code));
+			if (code == 4004) {
+				authFailed.store(true);
+				setState(ConnectionState::DISCONNECTED, "Authentication failed");
+			}
 		});
 
 		std::string gatewayUrl = DISCORD_GATEWAY_URL;
