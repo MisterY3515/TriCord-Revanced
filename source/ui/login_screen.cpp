@@ -346,6 +346,22 @@ void LoginScreen::renderBottom(C3D_RenderTarget *target) {
 	bool isLoading =
 	    (state == Discord::ConnectionState::CONNECTING || state == Discord::ConnectionState::AUTHENTICATING);
 
+	if (isLoading) {
+		std::string warnText = TR("login.loading.many_servers_warning");
+		std::vector<std::string> warnLines;
+		std::string::size_type pos = 0, found;
+		while ((found = warnText.find('\n', pos)) != std::string::npos) {
+			warnLines.push_back(warnText.substr(pos, found - pos));
+			pos = found + 1;
+		}
+		warnLines.push_back(warnText.substr(pos));
+		float warnY = BOTTOM_SCREEN_HEIGHT - 10.0f - (float)warnLines.size() * 14.0f;
+		for (const auto &line : warnLines) {
+			drawCenteredText(warnY, 0.5f, 0.40f, 0.40f, ScreenManager::colorTextMuted(), line, BOTTOM_SCREEN_WIDTH);
+			warnY += 14.0f;
+		}
+	}
+
 	if (!isLoading) {
 
 		if (showMFAInput) {
