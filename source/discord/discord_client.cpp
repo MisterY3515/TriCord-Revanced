@@ -2322,7 +2322,7 @@ void DiscordClient::submitMFA(const std::string &ticket, const std::string &code
 }
 
 void DiscordClient::sendLazyRequest(const std::string &guildId, const std::string &channelId) {
-	if (guildId.empty() || channelId.empty()) {
+	if (guildId.empty() || channelId.empty() || guildId == "DM") {
 		return;
 	}
 
