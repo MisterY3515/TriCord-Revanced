@@ -2260,11 +2260,28 @@ void DiscordClient::performLogin(const std::string &email, const std::string &pa
 			    std::string error = "Login failed: " + std::to_string(resp.statusCode);
 			    rapidjson::Document doc;
 			    doc.Parse(resp.body.c_str());
-			    if (!doc.HasParseError()) {
-				    if (doc.HasMember("message") && doc["message"].IsString()) {
+			    if (!doc.HasParseError() && doc.IsObject()) {
+				    if (doc.HasMember("captcha_key") && doc["captcha_key"].IsArray()) {
+					    error = "CAPTCHA required. Please use QR code login.";
+				    } else if (doc.HasMember("errors") && doc["errors"].IsObject()) {
+					    const rapidjson::Value &errors = doc["errors"];
+					    bool found = false;
+					    for (auto it = errors.MemberBegin(); it != errors.MemberEnd() && !found; ++it) {
+						    if (it->value.IsObject() && it->value.HasMember("_errors") &&
+						        it->value["_errors"].IsArray() && it->value["_errors"].Size() > 0) {
+							    const rapidjson::Value &firstErr = it->value["_errors"][0];
+							    if (firstErr.IsObject() && firstErr.HasMember("message") &&
+							        firstErr["message"].IsString()) {
+								    error = firstErr["message"].GetString();
+								    found = true;
+							    }
+						    }
+					    }
+					    if (!found && doc.HasMember("message") && doc["message"].IsString()) {
+						    error = doc["message"].GetString();
+					    }
+				    } else if (doc.HasMember("message") && doc["message"].IsString()) {
 					    error = doc["message"].GetString();
-				    } else if (doc.HasMember("errors")) {
-					    error = "Invalid credentials";
 				    }
 			    }
 			    if (cb) {
