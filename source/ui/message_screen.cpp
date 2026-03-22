@@ -894,8 +894,8 @@ float MessageScreen::drawForumMessage(const Discord::Message &msg, float y, bool
 }
 
 float MessageScreen::drawSystemMessage(const Discord::Message &msg, float y, float topMargin, float height) {
-	float blockHeight = 18.0f;
-	float drawY = y + topMargin + ((height - topMargin - blockHeight) / 2.0f) + 1.0f;
+	float blockHeight = 14.0f;
+	float drawY = y + topMargin + ((height - topMargin - blockHeight) / 2.0f);
 
 	u32 iconColor = ScreenManager::colorSuccess();
 	std::string icon = "->";
@@ -1459,7 +1459,7 @@ float MessageScreen::drawMessage(const Discord::Message &msg, float y, float max
 	}
 
 	if (msg.type != 0 && msg.type != 19) {
-		drawSystemMessage(msg, y, topMargin, 22.0f);
+		drawSystemMessage(msg, y, topMargin, height);
 		drawReactions(msg, textOffsetX, y + topMargin + 18.0f, isSelected);
 		return height;
 	}
