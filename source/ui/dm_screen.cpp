@@ -113,7 +113,7 @@ void DmScreen::renderTop(C3D_RenderTarget *target) {
 	drawCenteredRichText(4.0f, 0.95f, 0.52f, 0.52f, ScreenManager::colorText(), TR("menu.direct_messages"), 400.0f);
 
 	if (dms.empty()) {
-		drawCenteredText(100.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), TR("dm.no_messages"), 400.0f);
+		drawCenteredText(120.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), TR("dm.no_messages"), 400.0f);
 		return;
 	}
 
