@@ -247,11 +247,34 @@ void ScreenManager::update() {
 	if ((kHeld & KEY_L) && (kDown & KEY_R)) {
 		toggleDebugOverlay();
 		Logger::log("Debug overlay toggled: %s", debugOverlayEnabled ? "ON" : "OFF");
+	} else if ((kHeld & KEY_L) && (kDown & KEY_B)) {
+		auto &vc = Discord::VoiceClient::getInstance();
+		if (vc.isInChannel()) {
+			vc.leaveChannel();
+			showToast("Left voice channel");
+		}
 	} else if (kDown & KEY_R) {
 		auto &vc = Discord::VoiceClient::getInstance();
 		if (vc.isInChannel()) {
 			vc.setMuted(!vc.isMuted());
 			showToast(vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
+		}
+	}
+
+	// Touch controls for Voice Overlay
+	if ((kDown & KEY_TOUCH) && Discord::VoiceClient::getInstance().isInChannel()) {
+		touchPosition touch;
+		hidTouchRead(&touch);
+		if (touch.py >= BOTTOM_SCREEN_HEIGHT - 22.0f) {
+			if (touch.px < BOTTOM_SCREEN_WIDTH / 2) {
+				auto &vc = Discord::VoiceClient::getInstance();
+				vc.setMuted(!vc.isMuted());
+				showToast(vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
+			} else {
+				auto &vc = Discord::VoiceClient::getInstance();
+				vc.leaveChannel();
+				showToast("Left voice channel");
+			}
 		}
 	}
 
@@ -310,19 +333,42 @@ void ScreenManager::render() {
 void ScreenManager::renderVoiceOverlay() {
 	auto &vc = Discord::VoiceClient::getInstance();
 	
-	// Draw a persistent green bar at the very bottom
-	float barH = 20.0f;
+	// Draw a persistent bar at the very bottom
+	float barH = 22.0f;
 	float barY = BOTTOM_SCREEN_HEIGHT - barH;
-	C2D_DrawRectSolid(0.0f, barY, 0.9f, BOTTOM_SCREEN_WIDTH, barH, colorAccent());
 	
-	std::string status = "\uE008 Voice Connected";
-	if (vc.isMuted()) status += " (Muted)";
+	// Split in two buttons
+	u32 muteColor = vc.isMuted() ? C2D_Color32(200, 60, 60, 255) : colorAccent();
+	u32 leaveColor = C2D_Color32(200, 60, 60, 255);
 	
-	C2D_Text text;
-	C2D_TextParse(&text, textBuf, status.c_str());
-	C2D_TextOptimize(&text);
+	float halfW = BOTTOM_SCREEN_WIDTH / 2.0f;
 	
-	C2D_DrawText(&text, C2D_WithColor, 5.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255));
+	// Mute Button (Left)
+	C2D_DrawRectSolid(0.0f, barY, 0.9f, halfW, barH, muteColor);
+	C2D_DrawRectSolid(0.0f, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
+	
+	std::string muteStr = vc.isMuted() ? "\uE004 Unmute" : "\uE004 Mute";
+	C2D_Text mText;
+	C2D_TextParse(&mText, textBuf, muteStr.c_str());
+	C2D_TextOptimize(&mText);
+	float mw, mh;
+	C2D_TextGetDimensions(&mText, 0.45f, 0.45f, &mw, &mh);
+	C2D_DrawText(&mText, C2D_WithColor, (halfW - mw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255));
+	
+	// Leave Button (Right)
+	C2D_DrawRectSolid(halfW, barY, 0.9f, halfW, barH, leaveColor);
+	C2D_DrawRectSolid(halfW, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
+	
+	std::string leaveStr = "\uE001 Leave Call";
+	C2D_Text lText;
+	C2D_TextParse(&lText, textBuf, leaveStr.c_str());
+	C2D_TextOptimize(&lText);
+	float lw, lh;
+	C2D_TextGetDimensions(&lText, 0.45f, 0.45f, &lw, &lh);
+	C2D_DrawText(&lText, C2D_WithColor, halfW + (halfW - lw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255));
+	
+	// Separator
+	C2D_DrawRectSolid(halfW, barY, 0.92f, 1.0f, barH, C2D_Color32(0, 0, 0, 100));
 }
 
 void ScreenManager::toggleDebugOverlay() { debugOverlayEnabled = !debugOverlayEnabled; }
