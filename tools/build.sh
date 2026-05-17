@@ -3,8 +3,10 @@
 # Requires: devkitARM, 3ds-curl, 3ds-mbedtls, 3ds-zlib, bannertool, makerom
 set -e
 
-TOOLS_DIR="$(dirname "$0")/tools"
-mkdir -p "$TOOLS_DIR"
+TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$TOOLS_DIR")"
+
+cd "$ROOT_DIR"
 
 # Check devkitARM
 if [ -z "$DEVKITARM" ]; then
@@ -20,6 +22,8 @@ fi
 
 echo "=== devkitARM: $DEVKITARM ==="
 
+export PATH="$TOOLS_DIR:$PATH"
+
 # Check/install makerom
 if ! command -v makerom &> /dev/null; then
     echo "=== Installing makerom ==="
@@ -28,7 +32,6 @@ if ! command -v makerom &> /dev/null; then
         wget -q https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.3/makerom-v0.18.3-ubuntu_x86_64.zip -O "$TOOLS_DIR/makerom.zip"
         unzip -o "$TOOLS_DIR/makerom.zip" -d "$TOOLS_DIR"
         chmod +x "$TOOLS_DIR/makerom"
-        export PATH="$TOOLS_DIR:$PATH"
     else
         echo "ERROR: Unsupported architecture $ARCH for makerom auto-install. Install manually."
         exit 1
@@ -49,7 +52,6 @@ if ! command -v bannertool &> /dev/null; then
     fi
     cp "$BTBIN" "$TOOLS_DIR/bannertool"
     chmod +x "$TOOLS_DIR/bannertool"
-    export PATH="$TOOLS_DIR:$PATH"
 fi
 echo "=== bannertool: $(which bannertool) ==="
 

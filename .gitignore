@@ -4,7 +4,9 @@
 *.smdh
 *.lst
 build/
-tools/
+tools/*
+!tools/build.sh
+!tools/build.bat
 
 .vscode/
 Gestione/
