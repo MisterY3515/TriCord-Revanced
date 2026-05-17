@@ -34,6 +34,8 @@ class VoiceClient {
 
 	std::string getGuildId() const { return guildId; }
 	std::string getChannelId() const { return channelId; }
+	
+	bool isUserSpeaking(const std::string &userId) const;
 
 	// Callback dal Gateway
 	void onVoiceServerUpdate(const std::string &token, const std::string &endpoint);
@@ -59,6 +61,8 @@ class VoiceClient {
 	std::string channelId;
 	std::string voiceToken;
 	std::string voiceEndpoint;
+	
+	std::map<std::string, bool> speakingStates;
 	std::string voiceSessionId;
 	uint32_t ssrc;
 

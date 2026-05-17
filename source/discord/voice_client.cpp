@@ -210,6 +210,13 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 			sendVoiceSpeaking();
 		}
 		break;
+	case 5: // Speaking
+		if (data.HasMember("user_id") && data.HasMember("speaking")) {
+			std::string userId = data["user_id"].GetString();
+			bool speaking = (data["speaking"].GetInt() != 0);
+			speakingStates[userId] = speaking;
+		}
+		break;
 	}
 }
 
@@ -441,6 +448,14 @@ bool VoiceClient::decryptAudioPacket(const uint8_t *data, size_t len, std::vecto
 	}
 
 	return true;
+}
+
+bool VoiceClient::isUserSpeaking(const std::string &userId) const {
+	auto it = speakingStates.find(userId);
+	if (it != speakingStates.end()) {
+		return it->second;
+	}
+	return false;
 }
 
 } // namespace Discord

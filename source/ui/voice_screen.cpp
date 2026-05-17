@@ -36,7 +36,7 @@ void VoiceScreen::refreshUserList() {
 	for (const auto &uid : userIds) {
 		VoiceUser vu;
 		vu.userId = uid;
-		vu.isSpeaking = false;
+		vu.isSpeaking = vc.isUserSpeaking(uid);
 		vu.isMuted = false;
 		vu.isDeafened = false;
 
