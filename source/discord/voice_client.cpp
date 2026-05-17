@@ -7,6 +7,32 @@
 #include <rapidjson/writer.h>
 #include <sodium.h>
 #include "audio/audio_manager.h"
+#include <3ds.h>
+
+// Custom randombytes implementation for libsodium on 3DS
+// 3DS has no /dev/urandom, so we use PS_GenerateRandomBytes from libctru
+static const char *randombytes_3ds_name(void) {
+	return "3ds";
+}
+
+static void randombytes_3ds_buf(void *const buf, const size_t size) {
+	PS_GenerateRandomBytes(buf, size);
+}
+
+static uint32_t randombytes_3ds_random(void) {
+	uint32_t val;
+	PS_GenerateRandomBytes(&val, sizeof(val));
+	return val;
+}
+
+static struct randombytes_implementation randombytes_3ds_implementation = {
+    .implementation_name = randombytes_3ds_name,
+    .random = randombytes_3ds_random,
+    .stir = NULL,
+    .uniform = NULL,
+    .buf = randombytes_3ds_buf,
+    .close = NULL,
+};
 
 namespace Discord {
 
@@ -18,15 +44,6 @@ VoiceClient &VoiceClient::getInstance() {
 VoiceClient::VoiceClient()
     : state(State::DISCONNECTED), ssrc(0), decoder(nullptr), encoder(nullptr), sequence(0), timestamp(0), muted(false),
       deafened(false) {
-	if (sodium_init() < 0) {
-		Logger::log("[Voice] Failed to initialize libsodium!");
-	}
-
-	// Initialize Opus
-	int err;
-	decoder = opus_decoder_create(16000, 1, &err);
-	encoder = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
-
 	voiceWs.setOnMessage([this](std::string &msg) { handleVoiceWsMessage(msg); });
 	voiceWs.setOnError([](const std::string &err) { Logger::log("[Voice] WS Error: %s", err.c_str()); });
 	voiceWs.setOnClose([this](int code, const std::string &reason) {
@@ -44,6 +61,22 @@ VoiceClient::~VoiceClient() {
 
 void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
 	Logger::log("[Voice] Joining channel %s in guild %s", channelId.c_str(), guildId.c_str());
+
+	// Lazy init sodium & opus (only when actually needed, not at app startup)
+	if (!decoder) {
+		// Register custom randombytes using 3DS PS service (no /dev/urandom on 3DS)
+		randombytes_set_implementation(&randombytes_3ds_implementation);
+
+		if (sodium_init() < 0) {
+			Logger::log("[Voice] Failed to initialize libsodium!");
+			return;
+		}
+		int err;
+		decoder = opus_decoder_create(16000, 1, &err);
+		encoder = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
+		Logger::log("[Voice] Opus & Sodium initialized");
+	}
+
 	this->guildId = guildId;
 	this->channelId = channelId;
 	state = State::WAITING_SERVER;

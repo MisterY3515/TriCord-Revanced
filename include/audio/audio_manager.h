@@ -41,6 +41,7 @@ class AudioManager {
 	u32 micBufSize;
 	bool capturing;
 	u32 lastMicPos;
+	bool ndspReady;
 };
 
 } // namespace Audio

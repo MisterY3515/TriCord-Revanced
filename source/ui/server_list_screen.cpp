@@ -427,16 +427,12 @@ void ServerListScreen::update() {
 			if (selectedChannelIndex >= 0 && selectedChannelIndex < (int)sortedChannels.size()) {
 				const auto &ch = sortedChannels[selectedChannelIndex];
 				if (ch.type == 0 || ch.type == 5 || ch.type == 10 || ch.type == 11 || ch.type == 12 || ch.type == 1 ||
-				    ch.type == 3) {
+				    ch.type == 3 || ch.type == 2 || ch.type == 13) {
 					Discord::DiscordClient::getInstance().setSelectedChannelId(ch.id);
 					ScreenManager::getInstance().pushScreen(ScreenType::MESSAGES);
 				} else if (ch.type == 15) {
 					Discord::DiscordClient::getInstance().setSelectedChannelId(ch.id);
 					ScreenManager::getInstance().pushScreen(ScreenType::FORUM_CHANNEL);
-				} else if (ch.type == 2 || ch.type == 13) {
-					// Also A to join voice (optional)
-					state = State::VOICE_CONFIRM;
-					voiceConfirmChannelIndex = selectedChannelIndex;
 				}
 			}
 		} else if (kDown & KEY_Y) {
