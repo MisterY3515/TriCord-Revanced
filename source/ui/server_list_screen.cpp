@@ -598,6 +598,39 @@ void ServerListScreen::drawChannelList(float x, float y, float alpha) {
 			}
 
 			drawRichText(currentX + iconOffset, currentY + 3.0f, 0.5f, 0.5f, 0.5f, color, name);
+			
+			// Draw voice user count indicator
+			if (ch.type == 2 || ch.type == 13) {
+				if (selectedIndex >= 0 && selectedIndex < (int)listItems.size()) {
+					const auto &item = listItems[selectedIndex];
+					if (!item.isFolder) {
+						const auto &guilds = Discord::DiscordClient::getInstance().getGuilds();
+						for (const auto &guild : guilds) {
+							if (guild.id == item.id) {
+								int voiceUserCount = 0;
+								for (const auto &vs : guild.voiceStates) {
+									if (vs.channel_id == ch.id) {
+										voiceUserCount++;
+									}
+								}
+								if (voiceUserCount > 0) {
+									std::string countStr = std::to_string(voiceUserCount);
+									float countW = measureText(countStr, 0.4f, 0.4f);
+									float dotSize = 6.0f;
+									float rightX = 400.0f - 12.0f;
+									float centerY2 = currentY + rowHeight / 2.0f;
+									
+									// Draw green dot
+									C2D_DrawCircleSolid(rightX - countW - dotSize, centerY2, 0.5f, dotSize / 2.0f, C2D_Color32(67, 181, 129, 255));
+									// Draw user count
+									drawText(rightX - countW, currentY + 4.0f, 0.5f, 0.4f, 0.4f, C2D_Color32(67, 181, 129, 255), countStr);
+								}
+								break;
+							}
+						}
+					}
+				}
+			}
 		}
 		rendered++;
 	}

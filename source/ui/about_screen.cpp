@@ -97,7 +97,7 @@ void AboutScreen::renderTop(C3D_RenderTarget *target) {
 
 	drawCenteredRichText(centerY + 30.0f, 0.5f, 0.8f, 0.8f, ScreenManager::colorText(), "TriCord", 400.0f);
 
-	std::string verStr = "Version 0.0.1 build 2 (Original TriCord version: 0.4.1)";
+	std::string verStr = "Version 0.0.2 build 2 (Based on TriCord 0.4.1)";
 	drawCenteredText(centerY + 55.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), verStr, 400.0f);
 
 	float lineW = 100.0f;
@@ -130,8 +130,11 @@ void AboutScreen::renderBottom(C3D_RenderTarget *target) {
 		y += 14.0f;
 	};
 
-	drawSectionTitle("Credits", true);
-	drawEntry("2b-zipper", "Lead Developer");
+	drawSectionTitle("Revanced Credits", true);
+	drawEntry("MisterY3515", "Revanced Version Developer");
+
+	drawSectionTitle("Original Project Credits", true);
+	drawEntry("2b-zipper", "Original Lead Developer");
 	drawEntry("Str4ky", "French Translation");
 	drawEntry("AverageJohtonian", "Spanish Translation");
 	drawEntry("RossoDev", "Italian Translation");
