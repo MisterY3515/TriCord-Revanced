@@ -1,7 +1,7 @@
 #include "audio/audio_manager.h"
 #include "log.h"
-#include <malloc.h>
-#include <string.h>
+#include <3ds.h>
+#include <cstring>
 
 namespace Audio {
 
@@ -10,7 +10,7 @@ AudioManager &AudioManager::getInstance() {
 	return instance;
 }
 
-AudioManager::AudioManager() : currentPlayBuf(0), micBuffer(nullptr), micBufSize(0), capturing(false), lastMicPos(0) {
+AudioManager::AudioManager() : currentPlayBuf(0), micBuffer(nullptr), micBufSize(0), capturing(false), lastMicPos(0), ndspReady(false) {
 	// Size for ~40ms of 16kHz mono audio (16kHz * 2 bytes * 0.04 = 1280 bytes)
 	playbackBufferSize = 16000 * 2 * 0.04;
 	for (int i = 0; i < 2; i++) {
@@ -31,18 +31,29 @@ AudioManager::~AudioManager() {
 }
 
 void AudioManager::init() {
-	ndspInit();
-	ndspSetOutputMode(NDSP_OUTPUT_STEREO);
-	ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
-	ndspChnSetRate(0, 16000.0f);
-	ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
+	Result res = ndspInit();
+	if (R_FAILED(res)) {
+		Logger::log("[Audio] ndspInit failed (0x%08lX) - DSP firmware may not be dumped", res);
+		ndspReady = false;
+	} else {
+		ndspReady = true;
+		ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+		ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
+		ndspChnSetRate(0, 16000.0f);
+		ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
+	}
 	
-	// Pre-allocate MIC buffer (must be aligned to 0x1000)
-	micBufSize = 0x10000; // 64KB, aligned
-	micBuffer = (u8 *)memalign(0x1000, micBufSize);
+	// Pre-allocate MIC buffer (linearAlloc required for shared memory)
+	micBufSize = 0x10000; // 64KB
+	micBuffer = (u8 *)linearAlloc(micBufSize);
 	if (micBuffer) {
 		memset(micBuffer, 0, micBufSize);
-		micInit(micBuffer, micBufSize);
+		res = micInit(micBuffer, micBufSize);
+		if (R_FAILED(res)) {
+			Logger::log("[Audio] micInit failed (0x%08lX)", res);
+			linearFree(micBuffer);
+			micBuffer = nullptr;
+		}
 	} else {
 		Logger::log("[Audio] Failed to allocate MIC buffer!");
 	}
@@ -50,8 +61,8 @@ void AudioManager::init() {
 
 void AudioManager::shutdown() {
 	stopCapture();
-	ndspExit();
-	micExit();
+	if (ndspReady) ndspExit();
+	if (micBuffer) micExit();
 	if (micBuffer) {
 		linearFree(micBuffer);
 		micBuffer = nullptr;
@@ -59,7 +70,7 @@ void AudioManager::shutdown() {
 }
 
 void AudioManager::queuePcm(const int16_t *pcm, size_t samples) {
-	if (!pcm || samples == 0) return;
+	if (!pcm || samples == 0 || !ndspReady) return;
 	
 	size_t bytesToCopy = samples * 2;
 	if (bytesToCopy > playbackBufferSize) bytesToCopy = playbackBufferSize;

@@ -18,15 +18,6 @@ VoiceClient &VoiceClient::getInstance() {
 VoiceClient::VoiceClient()
     : state(State::DISCONNECTED), ssrc(0), decoder(nullptr), encoder(nullptr), sequence(0), timestamp(0), muted(false),
       deafened(false) {
-	if (sodium_init() < 0) {
-		Logger::log("[Voice] Failed to initialize libsodium!");
-	}
-
-	// Initialize Opus
-	int err;
-	decoder = opus_decoder_create(16000, 1, &err);
-	encoder = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
-
 	voiceWs.setOnMessage([this](std::string &msg) { handleVoiceWsMessage(msg); });
 	voiceWs.setOnError([](const std::string &err) { Logger::log("[Voice] WS Error: %s", err.c_str()); });
 	voiceWs.setOnClose([this](int code, const std::string &reason) {
@@ -44,6 +35,19 @@ VoiceClient::~VoiceClient() {
 
 void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
 	Logger::log("[Voice] Joining channel %s in guild %s", channelId.c_str(), guildId.c_str());
+
+	// Lazy init sodium & opus (only when actually needed, not at app startup)
+	if (!decoder) {
+		if (sodium_init() < 0) {
+			Logger::log("[Voice] Failed to initialize libsodium!");
+			return;
+		}
+		int err;
+		decoder = opus_decoder_create(16000, 1, &err);
+		encoder = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
+		Logger::log("[Voice] Opus & Sodium initialized");
+	}
+
 	this->guildId = guildId;
 	this->channelId = channelId;
 	state = State::WAITING_SERVER;
