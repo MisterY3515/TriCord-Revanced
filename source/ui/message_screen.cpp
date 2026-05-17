@@ -683,25 +683,7 @@ void MessageScreen::update() {
 			}
 		}
 
-		if (kDown & KEY_B) {
-			Discord::DiscordClient::getInstance().setMessageCallback(nullptr);
-			Discord::DiscordClient::getInstance().setMessageUpdateCallback(nullptr);
-			Discord::DiscordClient::getInstance().setMessageDeleteCallback(nullptr);
-			auto &client = Discord::DiscordClient::getInstance();
-			Discord::Channel ch = client.getChannel(channelId);
-			if (!ch.parent_id.empty()) {
-				Discord::Channel parent = client.getChannel(ch.parent_id);
-				client.setSelectedChannelId(ch.parent_id);
-				if (parent.type == 15) {
-					ScreenManager::getInstance().setScreen(ScreenType::FORUM_CHANNEL);
-				} else {
-					ScreenManager::getInstance().setScreen(ScreenType::MESSAGES);
-				}
-				return;
-			}
-			ScreenManager::getInstance().setScreen(ScreenType::GUILD_LIST);
-			return;
-		}
+
 	}
 
 	if (showNewMessageIndicator) {

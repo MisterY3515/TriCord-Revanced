@@ -1,7 +1,9 @@
 # TriCord Revanced
 
 ## Warning
-> This project is a speriment where I try to re-optimize this program
+> This project is a speriment where I try to "revance" this program just for fun to do it, don't aspect more actualizations or support and actually optimization might get worse. (but I hope it doesn't happen)
+> Under this warning there is the original TriCord README, all credtis and code goes to 2b-zipper.
+
 
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![Platform](https://img.shields.io/badge/platform-Nintendo%203DS-red)

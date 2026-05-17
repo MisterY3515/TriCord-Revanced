@@ -1,0 +1,32 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo dkp-pacman -Syyu --noconfirm 3ds-curl 3ds-mbedtls 3ds-zlib
+
+      - name: Build
+        run: make
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            TriCord.cia
+            TriCord.3dsx
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -173,11 +173,18 @@ void ServerListScreen::refreshChannels() {
 	const auto &currentUser = client.getCurrentUser();
 	bool isOwner = (guild->ownerId == currentUser.id);
 
+	std::unordered_map<std::string, std::vector<Discord::Channel>> channelsByParent;
+	std::vector<Discord::Channel> orphanChannels;
+
 	for (const auto &ch : guild->channels) {
 		if (ch.type == 4) {
 			categories.push_back(ch);
 		} else if (ch.viewable || isOwner) {
-			viewableChannels.push_back(ch);
+			if (ch.parent_id.empty()) {
+				orphanChannels.push_back(ch);
+			} else {
+				channelsByParent[ch.parent_id].push_back(ch);
+			}
 		}
 	}
 
@@ -209,30 +216,24 @@ void ServerListScreen::refreshChannels() {
 		return a.id < b.id;
 	});
 
-	std::sort(viewableChannels.begin(), viewableChannels.end(), sortByPosAndType);
+	std::sort(orphanChannels.begin(), orphanChannels.end(), sortByPosAndType);
+	for (auto &pair : channelsByParent) {
+		std::sort(pair.second.begin(), pair.second.end(), sortByPosAndType);
+	}
 
-	for (const auto &ch : viewableChannels) {
-		if (ch.parent_id.empty()) {
-			sortedChannels.push_back(ch);
-		}
+	for (const auto &ch : orphanChannels) {
+		sortedChannels.push_back(ch);
 	}
 
 	for (const auto &cat : categories) {
-		bool hasVisibleChildren = false;
-		for (const auto &ch : viewableChannels) {
-			if (ch.parent_id == cat.id) {
-				hasVisibleChildren = true;
-				break;
-			}
-		}
+		auto it = channelsByParent.find(cat.id);
+		bool hasVisibleChildren = (it != channelsByParent.end() && !it->second.empty());
 
 		if (hasVisibleChildren || isOwner) {
+			sortedChannels.push_back(cat);
 			if (hasVisibleChildren) {
-				sortedChannels.push_back(cat);
-				for (const auto &ch : viewableChannels) {
-					if (ch.parent_id == cat.id) {
-						sortedChannels.push_back(ch);
-					}
+				for (const auto &ch : it->second) {
+					sortedChannels.push_back(ch);
 				}
 			}
 		}
@@ -425,7 +426,7 @@ void ServerListScreen::update() {
 			if (selectedChannelIndex >= 0 && selectedChannelIndex < (int)sortedChannels.size()) {
 				const auto &ch = sortedChannels[selectedChannelIndex];
 				if (ch.type == 0 || ch.type == 5 || ch.type == 10 || ch.type == 11 || ch.type == 12 || ch.type == 1 ||
-				    ch.type == 3) {
+				    ch.type == 3 || ch.type == 2 || ch.type == 13) {
 					Discord::DiscordClient::getInstance().setSelectedChannelId(ch.id);
 					ScreenManager::getInstance().pushScreen(ScreenType::MESSAGES);
 				} else if (ch.type == 15) {
