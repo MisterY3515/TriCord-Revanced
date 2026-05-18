@@ -12,7 +12,7 @@ cd /d "%ROOT_DIR%"
 set "PATH=%TOOLS_DIR%;%PATH%"
 
 REM Override DEVKITARM and DEVKITPRO if they are set to linux paths like /opt/...
-echo "%DEVKITARM%" | findstr /i "/opt/devkitpro" >nul
+echo "%DEVKITARM%" | findstr /i /c:"/opt/devkitpro" >nul
 if not errorlevel 1 (
     set "DEVKITARM="
     set "DEVKITPRO="
