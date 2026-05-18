@@ -53,16 +53,19 @@ void VoiceScreen::refreshUserList() {
 		vu.avatarHash = "";
 
 		// Check voice state (mute/deaf)
-		for (const auto &guild : dc.getGuilds()) {
-			if (guild.id == guildId) {
-				for (const auto &vs : guild.voiceStates) {
-					if (vs.user_id == uid) {
-						vu.isMuted = vs.self_mute || vs.mute;
-						vu.isDeafened = vs.self_deaf || vs.deaf;
-						break;
+		{
+			std::lock_guard<std::recursive_mutex> lock(dc.getMutex());
+			for (const auto &guild : dc.getGuilds()) {
+				if (guild.id == guildId) {
+					for (const auto &vs : guild.voiceStates) {
+						if (vs.user_id == uid) {
+							vu.isMuted = vs.self_mute || vs.mute;
+							vu.isDeafened = vs.self_deaf || vs.deaf;
+							break;
+						}
 					}
+					break;
 				}
-				break;
 			}
 		}
 

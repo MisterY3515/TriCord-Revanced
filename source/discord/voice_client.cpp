@@ -60,6 +60,7 @@ VoiceClient::~VoiceClient() {
 }
 
 void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	// Se siamo già nello stesso canale, non fare nulla
 	if (this->channelId == channelId && state != State::DISCONNECTED) {
 		Logger::log("[Voice] Already in/joining channel %s, ignoring join request", channelId.c_str());
@@ -98,6 +99,7 @@ void VoiceClient::joinChannel(const std::string &guildId, const std::string &cha
 }
 
 void VoiceClient::leaveChannel() {
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	if (state == State::DISCONNECTED) return;
 	Logger::log("[Voice] Leaving channel");
 
@@ -123,13 +125,25 @@ void VoiceClient::leaveChannel() {
 	discoveryRetries = 0;
 }
 
-bool VoiceClient::isConnected() const { return state == State::READY; }
+bool VoiceClient::isConnected() const { 
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
+	return state == State::READY; 
+}
 
-bool VoiceClient::isInChannel() const { return !channelId.empty(); }
+bool VoiceClient::isInChannel() const { 
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
+	return !channelId.empty(); 
+}
 
-std::string VoiceClient::getCurrentChannelId() const { return channelId; }
+std::string VoiceClient::getCurrentChannelId() const { 
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
+	return channelId; 
+}
 
-std::string VoiceClient::getCurrentGuildId() const { return guildId; }
+std::string VoiceClient::getCurrentGuildId() const { 
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
+	return guildId; 
+}
 
 void VoiceClient::setMuted(bool mute) {
 	if (muted != mute) {
@@ -154,6 +168,7 @@ bool VoiceClient::isMuted() const { return muted; }
 bool VoiceClient::isDeafened() const { return deafened; }
 
 void VoiceClient::onVoiceServerUpdate(const std::string &token, const std::string &endpoint) {
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	if (state != State::WAITING_SERVER || channelId.empty()) {
 		Logger::log("[Voice] Ignoring Voice Server Update: state=%d, channelId=%s", (int)state, channelId.c_str());
 		return;
@@ -342,6 +357,7 @@ void VoiceClient::sendSelectProtocol(const std::string &ip, int port) {
 }
 
 void VoiceClient::update() {
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	if (state == State::DISCONNECTED || state == State::WAITING_SERVER) return;
 
 	voiceWs.poll();

@@ -27,7 +27,7 @@ RemoteAuth::RemoteAuth()
 RemoteAuth::~RemoteAuth() {
 	cancel();
 	if (workerThread.joinable()) {
-		workerThread.join();
+		workerThread.detach();
 	}
 	cleanupRSA();
 }
@@ -60,7 +60,7 @@ bool RemoteAuth::start() {
 
 void RemoteAuth::prepare() {
 	if (isInitializing) {
-		Logger::log("[RemoteAuth] Setup already in progress");
+		Logger::log("[RemoteAuth] Setup already in progress, not restarting init thread");
 		return;
 	}
 
@@ -68,8 +68,11 @@ void RemoteAuth::prepare() {
 	isInitializing = true;
 	initSuccess = false;
 
+	// Se il thread precedente è ancora in esecuzione (molto improbabile qui data isInitializing), 
+	// non lo joineremo perché bloccherebbe l'UI. Invece lo detacciamo.
 	if (workerThread.joinable()) {
-		workerThread.join();
+		Logger::log("[RemoteAuth] Detaching old worker thread");
+		workerThread.detach();
 	}
 
 	workerThread = std::thread([this]() { runInit(); });

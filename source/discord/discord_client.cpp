@@ -92,7 +92,13 @@ DiscordClient::DiscordClient()
 	workerThread = std::thread(&DiscordClient::workerLoop, this);
 }
 
-DiscordClient::~DiscordClient() { shutdown(); }
+DiscordClient::~DiscordClient() {
+	// Non chiamiamo shutdown() qui se i thread sono ancora attivi,
+	// perché il singleton viene distrutto alla fine del programma.
+	// Invece, facciamo un detach se necessario.
+	if (workerThread.joinable()) workerThread.detach();
+	if (networkThread.joinable()) networkThread.detach();
+}
 
 void DiscordClient::shutdown() {
 	Logger::log("DiscordClient::shutdown starting...");
@@ -109,8 +115,12 @@ void DiscordClient::shutdown() {
 
 	// Poi disconnettiamo il network thread
 	disconnect();
+	
+	// Usiamo detach invece di join per evitare blocchi dell'UI durante lo spegnimento
+	// Il thread si chiuderà da solo non appena uscirà dal loop runNetworkThread
 	if (networkThread.joinable()) {
-		networkThread.join();
+		Logger::log("DiscordClient::shutdown - detaching network thread");
+		networkThread.detach();
 	}
 
 	Logger::log("DiscordClient::shutdown complete");
@@ -134,7 +144,8 @@ bool DiscordClient::connect(const std::string &token) {
 	setState(ConnectionState::CONNECTING, "Starting network thread...");
 
 	if (networkThread.joinable()) {
-		networkThread.join();
+		Logger::log("DiscordClient::connect - detaching old network thread");
+		networkThread.detach();
 	}
 
 	{
@@ -598,6 +609,8 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 	if (d.HasMember("guilds") && d["guilds"].IsArray()) {
 		const rapidjson::Value &guildsArr = d["guilds"];
 		Logger::log("[Gateway] Parsing %u guilds...", guildsArr.Size());
+		newGuilds.reserve(guildsArr.Size());
+		
 		setStatus(Core::I18n::getInstance().get("login.status.loading_guilds") + " (0/" +
 		          std::to_string(guildsArr.Size()) + ")...");
 
@@ -613,10 +626,11 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 	}
 
 	std::vector<Channel> newPrivateChannels;
-	setStatus(Core::I18n::getInstance().get("login.status.loading_direct_messages"));
 	if (d.HasMember("private_channels") && d["private_channels"].IsArray()) {
 		const rapidjson::Value &pcs = d["private_channels"];
 		Logger::log("[Gateway] Parsing %u private channels...", pcs.Size());
+		newPrivateChannels.reserve(pcs.Size());
+		setStatus(Core::I18n::getInstance().get("login.status.loading_direct_messages"));
 		for (rapidjson::SizeType i = 0; i < pcs.Size(); i++) {
 			Channel channel;
 			parseChannelObject(pcs[i], channel);
@@ -630,6 +644,7 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 		if (settings.HasMember("guild_folders") && settings["guild_folders"].IsArray()) {
 			std::vector<std::string> sortOrder;
 			const rapidjson::Value &foldersArr = settings["guild_folders"];
+			newGuildFolders.reserve(foldersArr.Size());
 
 			for (rapidjson::SizeType i = 0; i < foldersArr.Size(); i++) {
 				const rapidjson::Value &folderObj = foldersArr[i];

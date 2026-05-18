@@ -59,6 +59,9 @@ void ServerListScreen::resetToServerView() {
 }
 
 const Discord::Guild *ServerListScreen::getGuild(const std::string &id) {
+	// ATTENZIONE: Questa funzione restituisce un puntatore a un elemento di un vettore
+	// che appartiene a DiscordClient. Questo è sicuro SOLO se il clientMutex è tenuto
+	// dal chiamante per tutta la durata dell'uso del puntatore.
 	const auto &guilds = Discord::DiscordClient::getInstance().getGuilds();
 	for (const auto &g : guilds) {
 		if (g.id == id) {
@@ -461,6 +464,9 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
 	C2D_SceneBegin(target);
 	C2D_TargetClear(target, ScreenManager::colorBackground());
 
+	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+	std::lock_guard<std::recursive_mutex> lock(client.getMutex());
+
 	if (listItems.empty()) {
 		if (Discord::DiscordClient::getInstance().getGuilds().empty() &&
 		    Discord::DiscordClient::getInstance().getState() == Discord::ConnectionState::READY) {
@@ -837,6 +843,8 @@ void ServerListScreen::renderBottom(C3D_RenderTarget *target) {
 
 	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
 	std::lock_guard<std::recursive_mutex> lock(client.getMutex());
+
+	if (listItems.empty()) return;
 
 	bool infoDrawn = false;
 

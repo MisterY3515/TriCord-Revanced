@@ -107,18 +107,9 @@ class DiscordClient {
 	}
 
 	const User &getSelf() const { return self; }
-	std::vector<Guild> getGuilds() {
-		std::lock_guard<std::recursive_mutex> lock(clientMutex);
-		return guilds;
-	}
-	std::vector<GuildFolder> getGuildFolders() {
-		std::lock_guard<std::recursive_mutex> lock(clientMutex);
-		return folders;
-	}
-	std::vector<Channel> getPrivateChannels() {
-		std::lock_guard<std::recursive_mutex> lock(clientMutex);
-		return privateChannels;
-	}
+	const std::vector<Guild> &getGuilds() { return guilds; }
+	const std::vector<GuildFolder> &getGuildFolders() { return folders; }
+	const std::vector<Channel> &getPrivateChannels() { return privateChannels; }
 
 	void setSelectedGuildId(const std::string &id) { selectedGuildId = id; }
 	std::string getSelectedGuildId() const { return selectedGuildId; }

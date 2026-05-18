@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,8 @@ namespace Discord {
 class VoiceClient {
   public:
 	static VoiceClient &getInstance();
+
+	std::recursive_mutex &getMutex() { return voiceMutex; }
 
 	// Ciclo di vita
 	void joinChannel(const std::string &guildId, const std::string &channelId);
@@ -46,6 +49,7 @@ class VoiceClient {
 	void update();
 
   private:
+	mutable std::recursive_mutex voiceMutex;
 	VoiceClient();
 	~VoiceClient();
 
