@@ -121,7 +121,7 @@ void DiscordClient::shutdown() {
 		stopWorker = true;
 	}
 	queueCv.notify_all();
-	if (workerThread.joinable()) {
+	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
 		workerThread.join();
 	}
 
@@ -241,7 +241,11 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 	Logger::log("[Network] Thread started");
 
 	while (!shuttingDown.load() && state != ConnectionState::DISCONNECTED) {
-		ws.setOnMessage([this](std::string &msg) { handleMessage(msg); });
+		ws.setOnMessage([this](std::string &msg) {
+			if (!shuttingDown.load()) {
+				handleMessage(msg);
+			}
+		});
 
 		ws.setOnError([this](const std::string &err) {
 			if (shuttingDown.load()) {
@@ -1045,21 +1049,25 @@ void DiscordClient::handleVoiceStateUpdate(const rapidjson::Value &d) {
 				guild.voiceStates.push_back(std::move(state));
 
 				if (userId == currentUser.id) {
-					VoiceClient::getInstance().onVoiceStateUpdate(guild.voiceStates.back().session_id, guildId, channelId);
-				}
-
-				// Se l'utente corrente viene spostato in un altro canale (da un altro client), disconnetti
-				if (userId == currentUser.id && VoiceClient::getInstance().isInChannel() &&
-				    channelId != VoiceClient::getInstance().getCurrentChannelId()) {
-					Logger::log("[Voice] Current user moved to another channel (%s), disconnecting", channelId.c_str());
-					VoiceClient::getInstance().leaveChannel();
+					const bool localVoiceActive = VoiceClient::getInstance().isInChannel();
+					const std::string localChannelId = VoiceClient::getInstance().getCurrentChannelId();
+					if (localVoiceActive && channelId == localChannelId) {
+						VoiceClient::getInstance().onVoiceStateUpdate(guild.voiceStates.back().session_id, guildId,
+						                                             channelId);
+					} else if (localVoiceActive && channelId != localChannelId) {
+						Logger::log("[Voice] Current user moved to another channel (%s), disconnecting local VoiceClient",
+						            channelId.c_str());
+						VoiceClient::getInstance().leaveChannel();
+					}
 				}
 			} else {
 				// Se l'utente corrente lascia il canale (o viene rimosso), chiudi il VoiceClient
 				if (userId == currentUser.id) {
-					VoiceClient::getInstance().onVoiceStateUpdate("", guildId, "");
-					Logger::log("[Voice] Current user left/kicked from channel, disconnecting VoiceClient");
-					VoiceClient::getInstance().leaveChannel();
+					if (VoiceClient::getInstance().isInChannel()) {
+						VoiceClient::getInstance().onVoiceStateUpdate("", guildId, "");
+						Logger::log("[Voice] Current user left/kicked from channel, disconnecting VoiceClient");
+						VoiceClient::getInstance().leaveChannel();
+					}
 				}
 			}
 			

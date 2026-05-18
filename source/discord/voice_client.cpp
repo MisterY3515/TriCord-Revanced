@@ -19,6 +19,7 @@ namespace {
 constexpr int kDiscordSampleRate = 48000;
 constexpr int kMicCaptureRate = 16360;
 constexpr int kDiscordFrameSamples = 960;         // 20ms at 48kHz
+constexpr uint64_t kDiscordFrameDurationMs = 20;
 constexpr int kMaxDecodeFrameSamples = 5760;      // 120ms at 48kHz
 constexpr size_t kRtpHeaderSize = 12;
 constexpr size_t kLegacyNonceSize = 24;
@@ -26,6 +27,7 @@ constexpr size_t kLiteNonceSuffixSize = 4;
 constexpr size_t kSecretBoxMacSize = crypto_secretbox_MACBYTES;
 constexpr size_t kXChaChaTagSize = crypto_aead_xchacha20poly1305_ietf_ABYTES;
 constexpr uint8_t kRtpPayloadType = 0x78;
+constexpr size_t kMaxBufferedVoiceFrames = 10;
 
 void writeBigEndianCounter(uint8_t *dst, uint32_t value) {
 	dst[0] = (value >> 24) & 0xFF;
@@ -54,8 +56,8 @@ VoiceClient::VoiceClient()
     : state(State::DISCONNECTED), selectedEncryptionMode("xsalsa20_poly1305"), hasVoiceServerInfo(false),
       hasVoiceStateInfo(false), ssrc(0), decoder(nullptr), encoder(nullptr), sequence(0), timestamp(0),
       transportNonceCounter(0), muted(false), deafened(false), shuttingDown(false), heartbeatInterval(0),
-      lastHeartbeatTime(0), lastDiscoveryTime(0), discoveryRetries(0), lastVoiceGatewaySequence(0),
-      captureResamplePosition(0.0) {
+      lastHeartbeatTime(0), lastDiscoveryTime(0), lastUdpKeepaliveTime(0), nextTransmitTime(0), discoveryRetries(0),
+      lastVoiceGatewaySequence(0), captureResamplePosition(0.0) {
 	memset(secretKey, 0, sizeof(secretKey));
 }
 
@@ -127,6 +129,8 @@ void VoiceClient::resetConnectionStateLocked() {
 	heartbeatInterval = 0;
 	lastHeartbeatTime = 0;
 	lastDiscoveryTime = 0;
+	lastUdpKeepaliveTime = 0;
+	nextTransmitTime = 0;
 	discoveryRetries = 0;
 	lastVoiceGatewaySequence = 0;
 	capturePcmAccumulator.clear();
@@ -173,22 +177,19 @@ void VoiceClient::tryStartVoiceConnectionLocked() {
 		return;
 	}
 
-	voiceWs.setOnMessage([this](std::string &msg) {
-		if (!shuttingDown) {
-			handleVoiceWsMessage(msg);
-		}
-	});
+	voiceWs.setOnMessage([this](std::string &msg) { handleVoiceWsMessage(msg); });
 	voiceWs.setOnError([this](const std::string &error) {
+		std::lock_guard<std::mutex> lock(voiceMutex);
 		if (shuttingDown) {
 			return;
 		}
 		Logger::log("[Voice] Voice WebSocket error: %s", error.c_str());
 	});
 	voiceWs.setOnClose([this](int code, const std::string &reason) {
+		std::lock_guard<std::mutex> lock(voiceMutex);
 		if (shuttingDown) {
 			return;
 		}
-		std::lock_guard<std::mutex> lock(voiceMutex);
 		Logger::log("[Voice] Voice WebSocket closed: %d %s", code, reason.c_str());
 		state = State::DISCONNECTED;
 		Audio::AudioManager::getInstance().stopCapture();
@@ -196,7 +197,7 @@ void VoiceClient::tryStartVoiceConnectionLocked() {
 	});
 
 	state = State::CONNECTING_WS;
-	std::string wsUrl = "wss://" + voiceEndpoint + "/?v=4";
+	std::string wsUrl = "wss://" + voiceEndpoint + "/?v=8";
 	Logger::log("[Voice] Connecting to Voice WebSocket: %s", wsUrl.c_str());
 	if (!voiceWs.connect(wsUrl)) {
 		Logger::log("[Voice] Failed to connect voice WebSocket");
@@ -250,9 +251,21 @@ void VoiceClient::onVoiceStateUpdate(const std::string &sessionId, const std::st
 		return;
 	}
 
+	if (!guildId.empty() && !this->guildId.empty() && guildId != this->guildId) {
+		Logger::log("[Voice] Ignoring Voice State Update for different guild %s (expected %s)", guildId.c_str(),
+		            this->guildId.c_str());
+		return;
+	}
+
 	if (channelId.empty()) {
 		voiceSessionId.clear();
 		hasVoiceStateInfo = false;
+		return;
+	}
+
+	if (channelId != this->channelId) {
+		Logger::log("[Voice] Ignoring Voice State Update for channel %s while waiting for %s", channelId.c_str(),
+		            this->channelId.c_str());
 		return;
 	}
 
@@ -283,6 +296,9 @@ void VoiceClient::onVoiceServerUpdate(const std::string &token, const std::strin
 
 void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 	std::lock_guard<std::mutex> lock(voiceMutex);
+	if (shuttingDown) {
+		return;
+	}
 	rapidjson::Document d;
 	d.Parse(msg.c_str());
 	if (d.HasParseError() || !d.IsObject() || !d.HasMember("op") || !d.HasMember("d")) {
@@ -300,54 +316,54 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 			sendVoiceIdentify();
 		}
 		break;
-	case 2: // Ready
-		if (!data.HasMember("ssrc") || !data.HasMember("ip") || !data.HasMember("port")) {
+	case 2: { // Ready
+		if (!data.HasMember("ssrc") || !data.HasMember("ip") || !data.HasMember("port") || !data.HasMember("modes") ||
+		    !data["modes"].IsArray()) {
 			leaveChannelLocked(true);
 			return;
 		}
 
 		ssrc = data["ssrc"].GetUint();
 		selectedEncryptionMode.clear();
-		if (data.HasMember("modes") && data["modes"].IsArray()) {
-			static const char *kModePreference[] = {
-			    "aead_xchacha20_poly1305_rtpsize",
-			    "aead_aes256_gcm_rtpsize",
-			    "xsalsa20_poly1305",
-			    "xsalsa20_poly1305_suffix",
-			    "xsalsa20_poly1305_lite",
-			};
+		static const char *kModePreference[] = {
+		    "aead_xchacha20_poly1305_rtpsize",
+		    "aead_aes256_gcm_rtpsize",
+		    "xsalsa20_poly1305",
+		    "xsalsa20_poly1305_suffix",
+		    "xsalsa20_poly1305_lite",
+		};
 
-			const rapidjson::Value &modes = data["modes"];
-			for (const char *preferredMode : kModePreference) {
-				for (rapidjson::SizeType i = 0; i < modes.Size(); i++) {
-					if (!modes[i].IsString()) {
-						continue;
-					}
-					const std::string mode = modes[i].GetString();
-					if (mode != preferredMode || !isSupportedEncryptionMode(mode)) {
-						continue;
-					}
-					if (mode == "aead_aes256_gcm_rtpsize" && crypto_aead_aes256gcm_is_available() != 1) {
-						continue;
-					}
-					selectedEncryptionMode = mode;
-					break;
+		const rapidjson::Value &modes = data["modes"];
+		for (const char *preferredMode : kModePreference) {
+			for (rapidjson::SizeType i = 0; i < modes.Size(); i++) {
+				if (!modes[i].IsString()) {
+					continue;
 				}
-				if (!selectedEncryptionMode.empty()) {
-					break;
+				const std::string mode = modes[i].GetString();
+				if (mode != preferredMode || !isSupportedEncryptionMode(mode)) {
+					continue;
 				}
+				if (mode == "aead_aes256_gcm_rtpsize" && crypto_aead_aes256gcm_is_available() != 1) {
+					continue;
+				}
+				selectedEncryptionMode = mode;
+				break;
 			}
-
 			if (selectedEncryptionMode.empty()) {
-				Logger::log("[Voice] No supported encryption mode offered by server");
-				for (rapidjson::SizeType i = 0; i < modes.Size(); i++) {
-					if (modes[i].IsString()) {
-						Logger::log("[Voice] Offered mode[%u]: %s", (unsigned)i, modes[i].GetString());
-					}
-				}
-				leaveChannelLocked(true);
-				return;
+				continue;
 			}
+			break;
+		}
+
+		if (selectedEncryptionMode.empty()) {
+			Logger::log("[Voice] No supported encryption mode offered by server");
+			for (rapidjson::SizeType i = 0; i < modes.Size(); i++) {
+				if (modes[i].IsString()) {
+					Logger::log("[Voice] Offered mode[%u]: %s", (unsigned)i, modes[i].GetString());
+				}
+			}
+			leaveChannelLocked(true);
+			return;
 		}
 
 		Logger::log("[Voice] Selected encryption mode: %s", selectedEncryptionMode.c_str());
@@ -360,15 +376,20 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 		state = State::DISCOVERING_IP;
 		performIpDiscovery();
 		break;
+	}
 	case 4: { // Session Description
 		Logger::log("[Voice] Received Session Description");
 		if (data.HasMember("mode") && data["mode"].IsString()) {
 			selectedEncryptionMode = data["mode"].GetString();
 		}
-		if (data.HasMember("dave_protocol_version") && data["dave_protocol_version"].IsInt() &&
-		    data["dave_protocol_version"].GetInt() > 0) {
-			Logger::log("[Voice] DAVE protocol version %d advertised by server; transport crypto is ready but MLS/E2EE is not implemented in this backend",
-			            data["dave_protocol_version"].GetInt());
+		if (data.HasMember("dave_protocol_version") && data["dave_protocol_version"].IsInt()) {
+			const int daveProtocolVersion = data["dave_protocol_version"].GetInt();
+			if (daveProtocolVersion > 0) {
+				Logger::log("[Voice] DAVE protocol version %d selected by server; this backend does not implement DAVE/MLS/E2EE and cannot join this voice session",
+				            daveProtocolVersion);
+				leaveChannelLocked(true);
+				return;
+			}
 		}
 		if (!data.HasMember("secret_key") || !data["secret_key"].IsArray()) {
 			leaveChannelLocked(true);
@@ -383,6 +404,8 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 		}
 
 		transportNonceCounter = 0;
+		lastUdpKeepaliveTime = 0;
+		nextTransmitTime = 0;
 		state = State::READY;
 		Audio::AudioManager::getInstance().startCapture();
 		sendVoiceSpeaking();
@@ -420,6 +443,7 @@ void VoiceClient::sendVoiceIdentify() {
 	data.AddMember("user_id", rapidjson::Value(currentUserId.c_str(), alloc), alloc);
 	data.AddMember("session_id", rapidjson::Value(voiceSessionId.c_str(), alloc), alloc);
 	data.AddMember("token", rapidjson::Value(voiceToken.c_str(), alloc), alloc);
+	data.AddMember("max_dave_protocol_version", 0, alloc);
 	d.AddMember("d", data, alloc);
 
 	rapidjson::StringBuffer buffer;
@@ -538,10 +562,28 @@ void VoiceClient::processOutgoingAudioLocked() {
 
 	if (muted) {
 		micAccumulator.clear();
+		nextTransmitTime = 0;
 		return;
 	}
 
-	while (micAccumulator.size() >= kDiscordFrameSamples) {
+	const uint64_t now = osGetTime();
+	const size_t maxBufferedSamples = static_cast<size_t>(kDiscordFrameSamples) * kMaxBufferedVoiceFrames;
+	if (micAccumulator.size() > maxBufferedSamples) {
+		const size_t samplesToDrop = micAccumulator.size() - maxBufferedSamples;
+		for (size_t i = 0; i < samplesToDrop; i++) {
+			micAccumulator.pop_front();
+		}
+		Logger::log("[Voice] Dropped %u resampled MIC samples to keep voice latency bounded", (unsigned)samplesToDrop);
+	}
+
+	if (nextTransmitTime == 0 || now + 250 < nextTransmitTime) {
+		nextTransmitTime = now;
+	}
+	if (now > nextTransmitTime + 250) {
+		nextTransmitTime = now;
+	}
+
+	while (micAccumulator.size() >= kDiscordFrameSamples && now + 1 >= nextTransmitTime) {
 		int16_t frame[kDiscordFrameSamples];
 		for (int i = 0; i < kDiscordFrameSamples; i++) {
 			frame[i] = micAccumulator.front();
@@ -558,6 +600,7 @@ void VoiceClient::processOutgoingAudioLocked() {
 		if (!encodeBuf.empty()) {
 			udp.send(encodeBuf.data(), encodeBuf.size());
 		}
+		nextTransmitTime += kDiscordFrameDurationMs;
 	}
 }
 
@@ -586,12 +629,20 @@ size_t VoiceClient::getRtpHeaderSize(const uint8_t *data, size_t len) const {
 }
 
 void VoiceClient::update() {
+	{
+		std::lock_guard<std::mutex> lock(voiceMutex);
+		if (state == State::DISCONNECTED || state == State::WAITING_SERVER) {
+			return;
+		}
+	}
+
+	voiceWs.poll();
+
 	std::lock_guard<std::mutex> lock(voiceMutex);
 	if (state == State::DISCONNECTED || state == State::WAITING_SERVER) {
 		return;
 	}
 
-	voiceWs.poll();
 	const uint64_t now = osGetTime();
 
 	if (state == State::READY || state == State::DISCOVERING_IP || state == State::SELECTING_PROTOCOL) {
@@ -608,9 +659,8 @@ void VoiceClient::update() {
 			voiceWs.send(buffer.GetString());
 		}
 
-		static uint64_t lastUdpHeartbeat = 0;
-		if (state == State::READY && now - lastUdpHeartbeat >= 5000) {
-			lastUdpHeartbeat = now;
+		if (state == State::READY && now - lastUdpKeepaliveTime >= 5000) {
+			lastUdpKeepaliveTime = now;
 			performIpDiscovery();
 		}
 	}

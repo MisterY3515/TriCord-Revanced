@@ -97,6 +97,8 @@ class VoiceClient {
 	int heartbeatInterval;
 	uint64_t lastHeartbeatTime;
 	uint64_t lastDiscoveryTime;
+	uint64_t lastUdpKeepaliveTime;
+	uint64_t nextTransmitTime;
 	int discoveryRetries;
 	uint16_t lastVoiceGatewaySequence;
 
