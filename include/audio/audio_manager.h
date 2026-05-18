@@ -16,13 +16,13 @@ class AudioManager {
 	void init();
 	void shutdown();
 
-	// Playback (NDSP) — 16kHz mono, per ascoltare chi parla
+	// Playback (NDSP) — 48kHz mono per il flusso voice Discord
 	void queuePcm(const int16_t *pcm, size_t samples);
 	
 	// Suoni di sistema
 	void playSystemSound(SystemSound sound);
 
-	// Capture (MIC) — 16kHz, microfono sempre attivo
+	// Capture (MIC) — 16360Hz nativi del 3DS, poi risincronizzati a 48kHz dal backend voice
 	void startCapture();
 	void stopCapture();
 	bool hasNewSamples() const;

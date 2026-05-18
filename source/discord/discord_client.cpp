@@ -93,15 +93,27 @@ DiscordClient::DiscordClient()
 }
 
 DiscordClient::~DiscordClient() {
-	// Non chiamiamo shutdown() qui se i thread sono ancora attivi,
-	// perché il singleton viene distrutto alla fine del programma.
-	// Invece, facciamo un detach se necessario.
-	if (workerThread.joinable()) workerThread.detach();
-	if (networkThread.joinable()) networkThread.detach();
+	shuttingDown.store(true);
+	{
+		std::lock_guard<std::mutex> lock(queueMutex);
+		stopWorker = true;
+	}
+	queueCv.notify_all();
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
+	ws.forceClose();
+	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
+		workerThread.join();
+	}
+	if (networkThread.joinable() && networkThread.get_id() != std::this_thread::get_id()) {
+		networkThread.join();
+	}
 }
 
 void DiscordClient::shutdown() {
 	Logger::log("DiscordClient::shutdown starting...");
+	shuttingDown.store(true);
 	
 	// Prima fermiamo il worker thread e svuotiamo la coda
 	{
@@ -116,13 +128,6 @@ void DiscordClient::shutdown() {
 	// Poi disconnettiamo il network thread
 	disconnect();
 	
-	// Usiamo join() invece di detach() per assicurarci che il thread sia chiuso
-	// prima della chiusura dei servizi di sistema (socExit).
-	if (networkThread.joinable()) {
-		Logger::log("DiscordClient::shutdown - joining network thread");
-		networkThread.join();
-	}
-	
 	// Cleanup esplicito dei socket e dei buffer
 	// (Aggiungi qui eventuali cleanup specifici se necessari)
 
@@ -130,25 +135,31 @@ void DiscordClient::shutdown() {
 }
 
 bool DiscordClient::connect(const std::string &token) {
-	std::lock_guard<std::recursive_mutex> lock(clientMutex);
-	if (state != ConnectionState::DISCONNECTED && state != ConnectionState::DISCONNECTED_ERROR) {
-		Logger::log("Connect called but state is %d", (int)state);
-		return false;
+	bool joinPreviousThread = false;
+	{
+		std::lock_guard<std::recursive_mutex> lock(clientMutex);
+		if (state != ConnectionState::DISCONNECTED && state != ConnectionState::DISCONNECTED_ERROR) {
+			Logger::log("Connect called but state is %d", (int)state);
+			return false;
+		}
+
+		if (isConnecting) {
+			Logger::log("Connect called but already in progress");
+			return false;
+		}
+
+		this->token = token;
+		authFailed.store(false);
+		shuttingDown.store(false);
+		isConnecting = true;
+		stopWorker = false;
+		setState(ConnectionState::CONNECTING, "Starting network thread...");
+		joinPreviousThread = networkThread.joinable();
 	}
 
-	if (isConnecting) {
-		Logger::log("Connect called but already in progress");
-		return false;
-	}
-
-	this->token = token;
-	authFailed.store(false);
-	isConnecting = true;
-	setState(ConnectionState::CONNECTING, "Starting network thread...");
-
-	if (networkThread.joinable()) {
-		Logger::log("DiscordClient::connect - detaching old network thread");
-		networkThread.detach();
+	if (joinPreviousThread && networkThread.get_id() != std::this_thread::get_id()) {
+		Logger::log("DiscordClient::connect - joining previous network thread");
+		networkThread.join();
 	}
 
 	{
@@ -156,6 +167,9 @@ bool DiscordClient::connect(const std::string &token) {
 		sendQueue.clear();
 	}
 
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
 	networkThread = std::thread(&DiscordClient::runNetworkThread, this, token);
 	return true;
 }
@@ -176,9 +190,10 @@ void DiscordClient::logout() {
 }
 
 void DiscordClient::disconnect() {
+	std::thread::id currentThreadId = std::this_thread::get_id();
 	{
 		std::lock_guard<std::recursive_mutex> lock(clientMutex);
-		if (state == ConnectionState::DISCONNECTED) {
+		if (state == ConnectionState::DISCONNECTED && !networkThread.joinable()) {
 			return;
 		}
 
@@ -187,12 +202,17 @@ void DiscordClient::disconnect() {
 		setState(ConnectionState::DISCONNECTED, "Disconnected");
 		isConnecting = false;
 	}
+	shuttingDown.store(true);
+
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
 
 	// Force-close the underlying socket to unblock any blocking I/O in the network thread
 	ws.forceClose();
 
 	// Now the network thread can exit; wait for it
-	if (networkThread.joinable()) {
+	if (networkThread.joinable() && networkThread.get_id() != currentThreadId) {
 		networkThread.join();
 	}
 
@@ -220,15 +240,21 @@ void DiscordClient::queueSend(const std::string &message) {
 void DiscordClient::runNetworkThread(const std::string &token) {
 	Logger::log("[Network] Thread started");
 
-	while (state != ConnectionState::DISCONNECTED) {
+	while (!shuttingDown.load() && state != ConnectionState::DISCONNECTED) {
 		ws.setOnMessage([this](std::string &msg) { handleMessage(msg); });
 
 		ws.setOnError([this](const std::string &err) {
+			if (shuttingDown.load()) {
+				return;
+			}
 			setStatus("Error: " + err);
 			Logger::log("[Gateway] Error: %s", err.c_str());
 		});
 
 		ws.setOnClose([this](int code, const std::string &reason) {
+			if (shuttingDown.load()) {
+				return;
+			}
 			Logger::log("[Gateway] Closed: %d %s", code, reason.c_str());
 			setStatus("Disconnected: " + std::to_string(code));
 			if (code == 4004) {
@@ -245,7 +271,7 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 
 			uint64_t delay = sessionId.empty() ? 5 : 0;
 
-			for (uint64_t i = 0; i < delay * 10 && state != ConnectionState::DISCONNECTED; i++) {
+			for (uint64_t i = 0; i < delay * 10 && state != ConnectionState::DISCONNECTED && !shuttingDown.load(); i++) {
 				svcSleepThread(100ULL * 1000 * 1000); // 100ms
 			}
 			continue;
@@ -257,7 +283,7 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 			isConnecting = false;
 		}
 
-		while (ws.isConnected() && state != ConnectionState::DISCONNECTED) {
+		while (ws.isConnected() && state != ConnectionState::DISCONNECTED && !shuttingDown.load()) {
 			ws.poll();
 
 			std::string msgToSend;
@@ -294,7 +320,7 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 			svcSleepThread(5ULL * 1000 * 1000);
 		}
 
-		if (state == ConnectionState::DISCONNECTED) {
+		if (state == ConnectionState::DISCONNECTED || shuttingDown.load()) {
 			break;
 		}
 
@@ -433,7 +459,7 @@ void DiscordClient::setStatus(const std::string &message) {
 }
 
 void DiscordClient::handleMessage(std::string &message) {
-	if (message.empty()) {
+	if (message.empty() || shuttingDown.load()) {
 		return;
 	}
 
@@ -445,6 +471,9 @@ void DiscordClient::handleMessage(std::string &message) {
 }
 
 void DiscordClient::processMessage(std::string &message) {
+	if (shuttingDown.load()) {
+		return;
+	}
 	rapidjson::Document doc;
 
 	doc.ParseInsitu<rapidjson::kParseDefaultFlags | rapidjson::kParseInsituFlag>(&message[0]);
@@ -1015,6 +1044,10 @@ void DiscordClient::handleVoiceStateUpdate(const rapidjson::Value &d) {
 				state.self_video = Utils::Json::getBool(d, "self_video");
 				guild.voiceStates.push_back(std::move(state));
 
+				if (userId == currentUser.id) {
+					VoiceClient::getInstance().onVoiceStateUpdate(guild.voiceStates.back().session_id, guildId, channelId);
+				}
+
 				// Se l'utente corrente viene spostato in un altro canale (da un altro client), disconnetti
 				if (userId == currentUser.id && VoiceClient::getInstance().isInChannel() &&
 				    channelId != VoiceClient::getInstance().getCurrentChannelId()) {
@@ -1024,6 +1057,7 @@ void DiscordClient::handleVoiceStateUpdate(const rapidjson::Value &d) {
 			} else {
 				// Se l'utente corrente lascia il canale (o viene rimosso), chiudi il VoiceClient
 				if (userId == currentUser.id) {
+					VoiceClient::getInstance().onVoiceStateUpdate("", guildId, "");
 					Logger::log("[Voice] Current user left/kicked from channel, disconnecting VoiceClient");
 					VoiceClient::getInstance().leaveChannel();
 				}

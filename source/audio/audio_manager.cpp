@@ -10,15 +10,20 @@
 
 namespace Audio {
 
+namespace {
+constexpr float kVoicePlaybackRate = 48000.0f;
+constexpr size_t kPlaybackBufferMs = 120;
+constexpr size_t kBytesPerMonoSample = sizeof(int16_t);
+} // namespace
+
 AudioManager &AudioManager::getInstance() {
 	static AudioManager instance;
 	return instance;
 }
 
 AudioManager::AudioManager() : currentPlayBuf(0), micBuffer(nullptr), micBufSize(0), capturing(false), lastMicPos(0), ndspReady(false) {
-	// Size for ~120ms of 16kHz mono audio (16kHz * 2 bytes * 0.12 = 3840 bytes)
-	// Questo evita troncamenti se i pacchetti sono più grandi di 40ms
-	playbackBufferSize = 3840;
+	// Voice playback now runs at 48kHz mono to match Discord's Opus transport clock.
+	playbackBufferSize = (static_cast<size_t>(kVoicePlaybackRate) * kBytesPerMonoSample * kPlaybackBufferMs) / 1000;
 	for (int i = 0; i < NUM_WAVE_BUFS; i++) {
 		playbackBuffer[i] = (int16_t *)linearAlloc(playbackBufferSize);
 		if (playbackBuffer[i]) {
@@ -128,7 +133,7 @@ void AudioManager::init() {
 		ndspReady = true;
 		ndspSetOutputMode(NDSP_OUTPUT_STEREO);
 		ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
-		ndspChnSetRate(0, 16000.0f);
+		ndspChnSetRate(0, kVoicePlaybackRate);
 		ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
 	}
 	

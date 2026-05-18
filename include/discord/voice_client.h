@@ -19,7 +19,7 @@ class VoiceClient {
   public:
 	static VoiceClient &getInstance();
 
-	std::recursive_mutex &getMutex() { return voiceMutex; }
+	std::mutex &getMutex() { return voiceMutex; }
 
 	// Ciclo di vita
 	void init();
@@ -45,13 +45,14 @@ class VoiceClient {
 	bool isUserSpeaking(const std::string &userId) const;
 
 	// Callback dal Gateway
+	void onVoiceStateUpdate(const std::string &sessionId, const std::string &guildId, const std::string &channelId);
 	void onVoiceServerUpdate(const std::string &token, const std::string &endpoint);
 
 	// Main loop
 	void update();
 
   private:
-	mutable std::recursive_mutex voiceMutex;
+	mutable std::mutex voiceMutex;
 	VoiceClient();
 	~VoiceClient();
 
@@ -70,6 +71,8 @@ class VoiceClient {
 	std::string voiceToken;
 	std::string voiceEndpoint;
 	std::string selectedEncryptionMode;
+	bool hasVoiceServerInfo;
+	bool hasVoiceStateInfo;
 	
 	std::map<std::string, bool> speakingStates;
 	std::string voiceSessionId;
@@ -85,22 +88,35 @@ class VoiceClient {
 	// RTP
 	uint16_t sequence;
 	uint32_t timestamp;
+	uint32_t transportNonceCounter;
 
 	bool muted;
 	bool deafened;
+	bool shuttingDown;
 
 	int heartbeatInterval;
 	uint64_t lastHeartbeatTime;
 	uint64_t lastDiscoveryTime;
 	int discoveryRetries;
+	uint16_t lastVoiceGatewaySequence;
 
+	std::deque<int16_t> capturePcmAccumulator;
 	std::deque<int16_t> micAccumulator;
 	std::vector<uint8_t> decodeBuf;
 	std::vector<uint8_t> encodeBuf;
+	double captureResamplePosition;
 
 	// Funzioni di supporto
 	void handleVoiceWsMessage(std::string &msg);
-	void connectVoiceWebSocket();
+	void tryStartVoiceConnectionLocked();
+	void leaveChannelLocked(bool notifyGateway);
+	void resetConnectionStateLocked();
+	bool initializeCodecsLocked();
+	void destroyCodecsLocked();
+	void resampleCaptureToDiscordRateLocked();
+	void processIncomingAudioLocked();
+	void processOutgoingAudioLocked();
+	size_t getRtpHeaderSize(const uint8_t *data, size_t len) const;
 	void sendVoiceIdentify();
 	void sendVoiceSpeaking();
 	void performIpDiscovery();

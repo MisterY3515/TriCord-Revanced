@@ -311,7 +311,9 @@ cia: $(OUTPUT).cia
 	@echo $(notdir $<)
 	@$(bin2o)
 
+ifneq ($(OS),Windows_NT)
 -include $(DEPSDIR)/*.d
+endif
 
 #---------------------------------------------------------------------------------
 endif
