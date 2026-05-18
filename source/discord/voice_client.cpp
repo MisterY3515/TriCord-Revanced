@@ -181,6 +181,15 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 			int port = data["port"].GetInt();
 			Logger::log("[Voice] UDP target: %s:%d", ip.c_str(), port);
 
+			if (data.HasMember("modes") && data["modes"].IsArray()) {
+				std::string modesStr = "";
+				for (rapidjson::SizeType i = 0; i < data["modes"].Size(); i++) {
+					modesStr += data["modes"][i].GetString();
+					modesStr += ", ";
+				}
+				Logger::log("[Voice] Supported modes: %s", modesStr.c_str());
+			}
+
 			if (udp.connect(ip, port)) {
 				state = State::DISCOVERING_IP;
 				performIpDiscovery();
@@ -365,14 +374,27 @@ void VoiceClient::update() {
 			// Ricevi e processa TUTTI i pacchetti audio in coda (UDP)
 			uint8_t buf[2048];
 			int len;
+			static int packetCount = 0;
 			while ((len = udp.recv(buf, sizeof(buf), 0)) > 12) {
+				packetCount++;
+				if (packetCount % 50 == 0) {
+					Logger::log("[Voice] UDP recv: %d bytes (pkt %d)", len, packetCount);
+				}
+
 				std::vector<uint8_t> decrypted;
 				if (decryptAudioPacket(buf, len, decrypted)) {
 					// Audio decriptato, ora va decodificato
 					int16_t pcm[1920]; // 1920 samples (max 120ms at 16kHz)
 					int samples = opus_decode(decoder, decrypted.data(), decrypted.size(), pcm, 1920, 0);
+					if (packetCount % 50 == 0) {
+						Logger::log("[Voice] Decrypt OK, Opus samples: %d", samples);
+					}
 					if (samples > 0) {
 						Audio::AudioManager::getInstance().queuePcm(pcm, samples);
+					}
+				} else {
+					if (packetCount % 50 == 0) {
+						Logger::log("[Voice] Decrypt FAILED for %d bytes", len);
 					}
 				}
 			}
@@ -437,13 +459,27 @@ void VoiceClient::encryptAudioPacket(const uint8_t *opus, size_t len, std::vecto
 bool VoiceClient::decryptAudioPacket(const uint8_t *data, size_t len, std::vector<uint8_t> &out) {
 	if (len <= 12 + crypto_secretbox_MACBYTES) return false;
 
+	int csrc_count = data[0] & 0x0F;
+	bool has_ext = (data[0] & 0x10) != 0;
+	size_t header_len = 12 + csrc_count * 4;
+
+	if (len <= header_len) return false;
+
+	if (has_ext) {
+		if (len <= header_len + 4) return false;
+		uint16_t ext_len = (data[header_len + 2] << 8) | data[header_len + 3];
+		header_len += 4 + ext_len * 4;
+	}
+
+	if (len <= header_len + crypto_secretbox_MACBYTES) return false;
+
 	uint8_t nonce[24] = {0};
 	memcpy(nonce, data, 12);
 
-	size_t cipherLen = len - 12;
+	size_t cipherLen = len - header_len;
 	out.resize(cipherLen - crypto_secretbox_MACBYTES);
 
-	if (crypto_secretbox_open_easy(out.data(), data + 12, cipherLen, nonce, secretKey) != 0) {
+	if (crypto_secretbox_open_easy(out.data(), data + header_len, cipherLen, nonce, secretKey) != 0) {
 		return false;
 	}
 

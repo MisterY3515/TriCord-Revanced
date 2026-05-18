@@ -4,6 +4,7 @@
 #include "network/udp_client.h"
 #include "network/websocket_client.h"
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 

@@ -221,7 +221,7 @@ void ScreenManager::update() {
 		return;
 	}
 
-	if ((kDown & KEY_START) && Discord::VoiceClient::getInstance().isConnected()) {
+	if ((kDown & KEY_START) && Discord::VoiceClient::getInstance().isInChannel()) {
 		if (currentType == ScreenType::VOICE_CALL) {
 			returnToPreviousScreen();
 		} else {

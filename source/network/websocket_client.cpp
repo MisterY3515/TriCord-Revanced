@@ -279,7 +279,14 @@ bool WebSocketClient::connect(const std::string &url) {
 }
 
 void WebSocketClient::disconnect(int code, const std::string &reason) {
-	if (state == WebSocketState::DISCONNECTED || state == WebSocketState::CLOSED) {
+	if (state == WebSocketState::DISCONNECTED) {
+		return;
+	}
+
+	// If forceClose() was already called, just clean up TLS and return
+	if (state == WebSocketState::CLOSED) {
+		cleanupTLS();
+		state = WebSocketState::DISCONNECTED;
 		return;
 	}
 
@@ -307,7 +314,7 @@ void WebSocketClient::disconnect(int code, const std::string &reason) {
 
 	cleanupTLS();
 
-	state = WebSocketState::CLOSED;
+	state = WebSocketState::DISCONNECTED;
 
 	if (onClose) {
 		onClose(code, reason);
@@ -315,6 +322,15 @@ void WebSocketClient::disconnect(int code, const std::string &reason) {
 }
 
 bool WebSocketClient::isConnected() const { return state == WebSocketState::CONNECTED; }
+
+void WebSocketClient::forceClose() {
+	// Close the underlying network fd to unblock any blocking I/O on another thread.
+	// Does NOT clean up TLS contexts — that happens in disconnect() later.
+	if (serverFd) {
+		mbedtls_net_free((mbedtls_net_context *)serverFd);
+	}
+	state = WebSocketState::CLOSED;
+}
 
 WebSocketState WebSocketClient::getState() const { return state; }
 

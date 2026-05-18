@@ -166,13 +166,16 @@ void DiscordClient::disconnect() {
 		isConnecting = false;
 	}
 
-	// Disconnect WebSocket OUTSIDE of mutex to unblock network thread's poll()
-	ws.disconnect();
+	// Force-close the underlying socket to unblock any blocking I/O in the network thread
+	ws.forceClose();
 
-	// Now safe to join — network thread will see DISCONNECTED state and exit
+	// Now the network thread can exit; wait for it
 	if (networkThread.joinable()) {
 		networkThread.join();
 	}
+
+	// Safe to fully clean up WebSocket now
+	ws.disconnect();
 
 	{
 		std::lock_guard<std::mutex> qLock(queueMutex);
@@ -220,8 +223,8 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 
 			uint64_t delay = sessionId.empty() ? 5 : 0;
 
-			if (delay > 0) {
-				svcSleepThread(delay * 1000 * 1000 * 1000);
+			for (uint64_t i = 0; i < delay * 10 && state != ConnectionState::DISCONNECTED; i++) {
+				svcSleepThread(100ULL * 1000 * 1000); // 100ms
 			}
 			continue;
 		}

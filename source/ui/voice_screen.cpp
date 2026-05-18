@@ -135,6 +135,20 @@ void VoiceScreen::update() {
 			ScreenManager::getInstance().returnToPreviousScreen();
 			return;
 		}
+		
+		if (kDown & KEY_Y) {
+			auto &vc = Discord::VoiceClient::getInstance();
+			vc.setMuted(!vc.isMuted());
+			ScreenManager::getInstance().showToast(
+			    vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
+		}
+		
+		if (kDown & KEY_X) {
+			Discord::VoiceClient::getInstance().leaveChannel();
+			ScreenManager::getInstance().showToast("Left voice channel");
+			ScreenManager::getInstance().returnToPreviousScreen();
+			return;
+		}
 
 		// Touch input - long press detection
 		touchPosition touch;
@@ -332,7 +346,7 @@ void VoiceScreen::renderBottom(C3D_RenderTarget *target) {
 
 	// Bottom hint bar
 	drawText(10.0f, 220 - 18.0f, 0.5f, 0.4f, 0.4f, ScreenManager::colorTextMuted(),
-	         "\uE001: Back  \uE000/Hold: Options  \uE046: Close");
+	         "\uE001: Back  \uE002: Leave  \uE003: Mute/Unmute");
 }
 
 } // namespace UI

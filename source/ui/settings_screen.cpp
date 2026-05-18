@@ -211,6 +211,33 @@ void SettingsScreen::onEnter() {
 	sslVerify.isDeveloper = true;
 	allItems.push_back(sslVerify);
 
+	SettingItem chatLogging;
+	chatLogging.label = "Dump Logs to Chat";
+	chatLogging.description = "Dumps the current debug logs into the active Discord channel.";
+	chatLogging.type = SettingItemType::ACTION;
+	chatLogging.action = []() {
+		auto logs = Logger::getRecentLogs();
+		if (logs.empty()) {
+			ScreenManager::getInstance().showToast("No logs to dump!");
+			return;
+		}
+		std::string msg = "```\n";
+		for (const auto &l : logs) {
+			msg += l + "\n";
+			if (msg.length() > 1800) break;
+		}
+		msg += "```";
+		auto &dc = Discord::DiscordClient::getInstance();
+		if (!dc.getSelectedChannelId().empty()) {
+			dc.sendMessageAsync(dc.getSelectedChannelId(), msg, [](bool) {});
+			ScreenManager::getInstance().showToast("Logs dumped to channel.");
+		} else {
+			ScreenManager::getInstance().showToast("Select a channel first!");
+		}
+	};
+	chatLogging.isDeveloper = true;
+	allItems.push_back(chatLogging);
+
 	refreshVisibleItems();
 }
 

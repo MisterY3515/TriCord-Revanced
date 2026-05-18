@@ -7,7 +7,7 @@
 
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![Platform](https://img.shields.io/badge/platform-Nintendo%203DS-red)
-![Downloads](https://img.shields.io/github/downloads/2b-zipper/TriCord/total?style=flat&color=blue)
+![Downloads](https://img.shields.io/github/downloads/MisterY3515/TriCord-Revanced/total?style=flat&color=blue)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat&logo=discord&logoColor=white)](https://discord.gg/quYy9fK8tJ)
 
 Discord client for Nintendo 3DS.

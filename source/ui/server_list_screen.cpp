@@ -530,20 +530,20 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
 		// Popup box
 		float px = 50.0f, py = 70.0f, pw = 300.0f, ph = 100.0f;
 		drawRoundedRect(px, py, 0.96f, pw, ph, 10.0f, ScreenManager::colorBackgroundDark());
-		drawRoundedRect(px + 1, py + 1, 0.961f, pw - 2, ph - 2, 9.0f, ScreenManager::colorBackground());
+		drawRoundedRect(px + 1, py + 1, 0.97f, pw - 2, ph - 2, 9.0f, ScreenManager::colorBackground());
 		
 		// Channel name
 		std::string chName = "";
 		if (voiceConfirmChannelIndex >= 0 && voiceConfirmChannelIndex < (int)sortedChannels.size()) {
 			chName = sortedChannels[voiceConfirmChannelIndex].name;
 		}
-		drawCenteredText(py + 18.0f, 0.97f, 0.5f, 0.5f, ScreenManager::colorText(), "Join voice: " + chName, 400.0f);
+		drawCenteredText(py + 18.0f, 0.98f, 0.5f, 0.5f, ScreenManager::colorText(), "Join voice: " + chName, 400.0f);
 		
 		// Separator
-		C2D_DrawRectSolid(px + 20, py + 45, 0.97f, pw - 40, 1.0f, ScreenManager::colorSeparator());
+		C2D_DrawRectSolid(px + 20, py + 45, 0.98f, pw - 40, 1.0f, ScreenManager::colorSeparator());
 		
 		// Controls
-		drawCenteredText(py + 60.0f, 0.97f, 0.45f, 0.45f, ScreenManager::colorAccent(), "\uE000 Join   \uE001 Cancel", 400.0f);
+		drawCenteredText(py + 60.0f, 0.98f, 0.45f, 0.45f, ScreenManager::colorAccent(), "\uE000 Join   \uE001 Cancel", 400.0f);
 	}
 }
 

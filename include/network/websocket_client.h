@@ -45,6 +45,7 @@ class WebSocketClient {
 	void setOnClose(CloseCallback callback);
 
 	void poll();
+	void forceClose();
 
   private:
 	int sockfd;
