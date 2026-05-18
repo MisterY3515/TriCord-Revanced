@@ -59,6 +59,9 @@ void ServerListScreen::resetToServerView() {
 }
 
 const Discord::Guild *ServerListScreen::getGuild(const std::string &id) {
+	// ATTENZIONE: Questa funzione restituisce un puntatore a un elemento di un vettore
+	// che appartiene a DiscordClient. Questo è sicuro SOLO se il clientMutex è tenuto
+	// dal chiamante per tutta la durata dell'uso del puntatore.
 	const auto &guilds = Discord::DiscordClient::getInstance().getGuilds();
 	for (const auto &g : guilds) {
 		if (g.id == id) {
@@ -461,6 +464,9 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
 	C2D_SceneBegin(target);
 	C2D_TargetClear(target, ScreenManager::colorBackground());
 
+	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+	std::lock_guard<std::recursive_mutex> lock(client.getMutex());
+
 	if (listItems.empty()) {
 		if (Discord::DiscordClient::getInstance().getGuilds().empty() &&
 		    Discord::DiscordClient::getInstance().getState() == Discord::ConnectionState::READY) {
@@ -530,20 +536,20 @@ void ServerListScreen::renderTop(C3D_RenderTarget *target) {
 		// Popup box
 		float px = 50.0f, py = 70.0f, pw = 300.0f, ph = 100.0f;
 		drawRoundedRect(px, py, 0.96f, pw, ph, 10.0f, ScreenManager::colorBackgroundDark());
-		drawRoundedRect(px + 1, py + 1, 0.961f, pw - 2, ph - 2, 9.0f, ScreenManager::colorBackground());
+		drawRoundedRect(px + 1, py + 1, 0.97f, pw - 2, ph - 2, 9.0f, ScreenManager::colorBackground());
 		
 		// Channel name
 		std::string chName = "";
 		if (voiceConfirmChannelIndex >= 0 && voiceConfirmChannelIndex < (int)sortedChannels.size()) {
 			chName = sortedChannels[voiceConfirmChannelIndex].name;
 		}
-		drawCenteredText(py + 18.0f, 0.97f, 0.5f, 0.5f, ScreenManager::colorText(), "Join voice: " + chName, 400.0f);
+		drawCenteredText(py + 18.0f, 0.98f, 0.5f, 0.5f, ScreenManager::colorText(), "Join voice: " + chName, 400.0f);
 		
 		// Separator
-		C2D_DrawRectSolid(px + 20, py + 45, 0.97f, pw - 40, 1.0f, ScreenManager::colorSeparator());
+		C2D_DrawRectSolid(px + 20, py + 45, 0.98f, pw - 40, 1.0f, ScreenManager::colorSeparator());
 		
 		// Controls
-		drawCenteredText(py + 60.0f, 0.97f, 0.45f, 0.45f, ScreenManager::colorAccent(), "\uE000 Join   \uE001 Cancel", 400.0f);
+		drawCenteredText(py + 60.0f, 0.98f, 0.45f, 0.45f, ScreenManager::colorAccent(), "\uE000 Join   \uE001 Cancel", 400.0f);
 	}
 }
 
@@ -838,6 +844,8 @@ void ServerListScreen::renderBottom(C3D_RenderTarget *target) {
 	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
 	std::lock_guard<std::recursive_mutex> lock(client.getMutex());
 
+	if (listItems.empty()) return;
+
 	bool infoDrawn = false;
 
 	if (selectedIndex >= 0 && selectedIndex < (int)listItems.size()) {
@@ -946,12 +954,18 @@ void ServerListScreen::renderBottom(C3D_RenderTarget *target) {
 
 	if (state == State::SELECTING_SERVER) {
 		drawText(10.0f, BOTTOM_SCREEN_HEIGHT - 25.0f, 0.5f, 0.4f, 0.4f, ScreenManager::colorTextMuted(),
-		         "\uE079\uE07A: " + TR("common.navigate") + "  \uE000: " + TR("common.enter") +
-		             "  START: " + TR("common.exit"));
+		         "\uE079\uE07A: " + TR("common.navigate") + "  \uE000: " + TR("common.enter"));
 	} else {
-		drawText(10.0f, BOTTOM_SCREEN_HEIGHT - 25.0f, 0.5f, 0.4f, 0.4f, ScreenManager::colorTextMuted(),
-		         "\uE079\uE07A: " + TR("common.navigate") + "  \uE001: " + TR("common.back") +
-		             "  \uE000: " + TR("common.enter"));
+		// Check if selected channel is a voice channel to show Y hint
+		std::string hint = "\uE079\uE07A: " + TR("common.navigate") + "  \uE001: " + TR("common.back") +
+		                    "  \uE000: " + TR("common.enter");
+		if (selectedChannelIndex >= 0 && selectedChannelIndex < (int)sortedChannels.size()) {
+			const auto &ch = sortedChannels[selectedChannelIndex];
+			if (ch.type == 2 || ch.type == 13) {
+				hint += "  \uE003: Voice";
+			}
+		}
+		drawText(10.0f, BOTTOM_SCREEN_HEIGHT - 25.0f, 0.5f, 0.4f, 0.4f, ScreenManager::colorTextMuted(), hint);
 	}
 }
 

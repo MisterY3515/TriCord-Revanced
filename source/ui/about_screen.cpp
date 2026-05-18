@@ -97,7 +97,7 @@ void AboutScreen::renderTop(C3D_RenderTarget *target) {
 
 	drawCenteredRichText(centerY + 30.0f, 0.5f, 0.8f, 0.8f, ScreenManager::colorText(), "TriCord", 400.0f);
 
-	std::string verStr = "Version 0.0.5 (Based on TriCord 0.4.2)";
+	std::string verStr = "Version 0.0.6 (Based on TriCord 0.4.1)";
 	drawCenteredText(centerY + 55.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), verStr, 400.0f);
 
 	float lineW = 100.0f;
@@ -157,6 +157,10 @@ void AboutScreen::renderBottom(C3D_RenderTarget *target) {
 	drawLib("stb_image, qrcodegen, zlib");
 	drawLib("libopus, libsodium");
 	drawLib("Twemoji Assets");
+
+	drawSectionTitle("Voice Compatibility");
+	drawEntry("Transport Voice", "Opus 48kHz + RTP/UDP with legacy/AEAD transport encryption");
+	drawEntry("DAVE / MLS / E2EE", "Not implemented (modern Discord sessions may refuse voice)");
 
 	drawSectionTitle("Source Code");
 	drawText(x + 8.0f, y, 0.5f, 0.36f, 0.36f, ScreenManager::colorTextMuted(), "Licensed under GPL v3.0");
