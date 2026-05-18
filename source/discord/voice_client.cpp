@@ -1,172 +1,3 @@
-#include "discord/voice_client.h"
-#include "discord/discord_client.h"
-#include "log.h"
-#include <opus/opus.h>
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#include <sodium.h>
-#include "audio/audio_manager.h"
-#include <3ds.h>
-
-// Custom randombytes implementation for libsodium on 3DS
-// 3DS has no /dev/urandom, so we use PS_GenerateRandomBytes from libctru
-static const char *randombytes_3ds_name(void) {
-	return "3ds";
-}
-
-static void randombytes_3ds_buf(void *const buf, const size_t size) {
-	PS_GenerateRandomBytes(buf, size);
-}
-
-static uint32_t randombytes_3ds_random(void) {
-	uint32_t val;
-	PS_GenerateRandomBytes(&val, sizeof(val));
-	return val;
-}
-
-static struct randombytes_implementation randombytes_3ds_implementation = {
-    .implementation_name = randombytes_3ds_name,
-    .random = randombytes_3ds_random,
-    .stir = NULL,
-    .uniform = NULL,
-    .buf = randombytes_3ds_buf,
-    .close = NULL,
-};
-
-namespace Discord {
-
-VoiceClient &VoiceClient::getInstance() {
-	static VoiceClient instance;
-	return instance;
-}
-
-VoiceClient::VoiceClient()
-    : state(State::DISCONNECTED), ssrc(0), decoder(nullptr), encoder(nullptr), sequence(0), timestamp(0), muted(false),
-      deafened(false), heartbeatInterval(0), lastHeartbeatTime(0), lastDiscoveryTime(0), discoveryRetries(0) {
-	voiceWs.setOnMessage([this](std::string &msg) { handleVoiceWsMessage(msg); });
-	voiceWs.setOnError([](const std::string &err) { Logger::log("[Voice] WS Error: %s", err.c_str()); });
-	voiceWs.setOnClose([this](int code, const std::string &reason) {
-		Logger::log("[Voice] WS Closed: %d %s", code, reason.c_str());
-		state = State::DISCONNECTED;
-		udp.close();
-	});
-}
-
-VoiceClient::~VoiceClient() {
-	leaveChannel();
-	if (decoder) opus_decoder_destroy(decoder);
-	if (encoder) opus_encoder_destroy(encoder);
-}
-
-void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	// Se siamo già nello stesso canale, non fare nulla
-	if (this->channelId == channelId && state != State::DISCONNECTED) {
-		Logger::log("[Voice] Already in/joining channel %s, ignoring join request", channelId.c_str());
-		return;
-	}
-
-	// Se siamo in un altro canale, esci prima
-	if (!this->channelId.empty()) {
-		Logger::log("[Voice] Leaving current channel %s before joining %s", this->channelId.c_str(), channelId.c_str());
-		leaveChannel();
-	}
-
-	Logger::log("[Voice] Joining channel %s in guild %s", channelId.c_str(), guildId.c_str());
-
-	// Lazy init sodium & opus (only when actually needed, not at app startup)
-	if (!decoder) {
-		// Register custom randombytes using 3DS PS service (no /dev/urandom on 3DS)
-		randombytes_set_implementation(&randombytes_3ds_implementation);
-
-		if (sodium_init() < 0) {
-			Logger::log("[Voice] Failed to initialize libsodium!");
-			return;
-		}
-		int err;
-		decoder = opus_decoder_create(16000, 1, &err);
-		encoder = opus_encoder_create(16000, 1, OPUS_APPLICATION_VOIP, &err);
-		Logger::log("[Voice] Opus & Sodium initialized");
-	}
-
-	this->guildId = guildId;
-	this->channelId = channelId;
-	state = State::WAITING_SERVER;
-
-	Audio::AudioManager::getInstance().playSystemSound(Audio::SystemSound::JOIN);
-	DiscordClient::getInstance().sendVoiceStateUpdate(guildId, channelId, muted, deafened);
-}
-
-void VoiceClient::leaveChannel() {
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	if (state == State::DISCONNECTED) return;
-	Logger::log("[Voice] Leaving channel");
-
-	Audio::AudioManager::getInstance().playSystemSound(Audio::SystemSound::LEAVE);
-
-	if (!channelId.empty()) {
-		DiscordClient::getInstance().sendVoiceStateUpdate(guildId, "", muted, deafened);
-	}
-
-	voiceWs.disconnect();
-	udp.close();
-	Audio::AudioManager::getInstance().stopCapture();
-	state = State::DISCONNECTED;
-	channelId.clear();
-	guildId.clear();
-	voiceToken.clear();
-	voiceEndpoint.clear();
-	voiceSessionId.clear();
-	micAccumulator.clear();
-	heartbeatInterval = 0;
-	lastHeartbeatTime = 0;
-	lastDiscoveryTime = 0;
-	discoveryRetries = 0;
-}
-
-bool VoiceClient::isConnected() const { 
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	return state == State::READY; 
-}
-
-bool VoiceClient::isInChannel() const { 
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	return !channelId.empty(); 
-}
-
-std::string VoiceClient::getCurrentChannelId() const { 
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	return channelId; 
-}
-
-std::string VoiceClient::getCurrentGuildId() const { 
-	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
-	return guildId; 
-}
-
-void VoiceClient::setMuted(bool mute) {
-	if (muted != mute) {
-		muted = mute;
-		if (isInChannel()) {
-			DiscordClient::getInstance().sendVoiceStateUpdate(guildId, channelId, muted, deafened);
-		}
-	}
-}
-
-void VoiceClient::setDeafened(bool deaf) {
-	if (deafened != deaf) {
-		deafened = deaf;
-		if (isInChannel()) {
-			DiscordClient::getInstance().sendVoiceStateUpdate(guildId, channelId, muted, deafened);
-		}
-	}
-}
-
-bool VoiceClient::isMuted() const { return muted; }
-
-bool VoiceClient::isDeafened() const { return deafened; }
-
 void VoiceClient::onVoiceServerUpdate(const std::string &token, const std::string &endpoint) {
 	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	if (state != State::WAITING_SERVER || channelId.empty()) {
@@ -179,153 +10,19 @@ void VoiceClient::onVoiceServerUpdate(const std::string &token, const std::strin
 	
 	// Remove port from endpoint if present (e.g., vss1.discord.gg:443 -> vss1.discord.gg)
 	voiceEndpoint = endpoint;
-	size_t colonPos = voiceEndpoint.find(':');
-	if (colonPos != std::string::npos) {
-		voiceEndpoint = voiceEndpoint.substr(0, colonPos);
+	size_t portPos = voiceEndpoint.find(':');
+	if (portPos != std::string::npos) {
+		voiceEndpoint = voiceEndpoint.substr(0, portPos);
 	}
-
+	
+	// Start Voice WebSocket connection in a separate thread to not block gateway
 	state = State::CONNECTING_WS;
-	connectVoiceWebSocket();
-}
-
-void VoiceClient::connectVoiceWebSocket() {
-	std::string url = "wss://" + voiceEndpoint + "/?v=7";
-	Logger::log("[Voice] Connecting to %s", url.c_str());
-	if (!voiceWs.connect(url)) {
-		Logger::log("[Voice] Failed to connect to voice WS");
-		state = State::DISCONNECTED;
-	}
-}
-
-void VoiceClient::handleVoiceWsMessage(std::string &msg) {
-	rapidjson::Document d;
-	d.Parse(msg.c_str());
-	if (d.HasParseError() || !d.IsObject()) return;
-
-	int op = d["op"].GetInt();
-	const rapidjson::Value &data = d["d"];
-
-	switch (op) {
-	case 2: // Ready
-		Logger::log("[Voice] Received Ready");
-		ssrc = data["ssrc"].GetUint();
-		{
-			std::string ip = data["ip"].GetString();
-			int port = data["port"].GetInt();
-			Logger::log("[Voice] UDP target: %s:%d", ip.c_str(), port);
-
-			if (data.HasMember("modes") && data["modes"].IsArray()) {
-				std::string modesStr = "";
-				for (rapidjson::SizeType i = 0; i < data["modes"].Size(); i++) {
-					modesStr += data["modes"][i].GetString();
-					modesStr += ", ";
-				}
-				Logger::log("[Voice] Supported modes: %s", modesStr.c_str());
-			}
-
-			if (udp.connect(ip, port)) {
-				state = State::DISCOVERING_IP;
-				performIpDiscovery();
-			} else {
-				leaveChannel();
-			}
-		}
-		break;
-	case 8: // Hello
-		if (data.HasMember("heartbeat_interval")) {
-			heartbeatInterval = data["heartbeat_interval"].GetInt();
-			lastHeartbeatTime = osGetTime();
-			Logger::log("[Voice] Received Hello, heartbeat interval: %d ms", heartbeatInterval);
-		}
-		sendVoiceIdentify();
-		break;
-	case 4: // Session Description
-		Logger::log("[Voice] Received Session Description");
-		if (data.HasMember("secret_key") && data["secret_key"].IsArray()) {
-			const auto &keyArr = data["secret_key"];
-			for (rapidjson::SizeType i = 0; i < keyArr.Size() && i < 32; i++) {
-				secretKey[i] = keyArr[i].GetUint();
-			}
-			state = State::READY;
-			Audio::AudioManager::getInstance().startCapture();
-			Logger::log("[Voice] Ready to transmit audio!");
-			sendVoiceSpeaking();
-		}
-		break;
-	case 5: // Speaking
-		if (data.HasMember("user_id") && data.HasMember("speaking")) {
-			std::string userId = data["user_id"].GetString();
-			bool speaking = (data["speaking"].GetInt() != 0);
-			speakingStates[userId] = speaking;
-		}
-		break;
-	}
-}
-
-void VoiceClient::sendVoiceIdentify() {
-	state = State::IDENTIFYING;
-
-	rapidjson::Document d;
-	d.SetObject();
-	auto &alloc = d.GetAllocator();
-
-	d.AddMember("op", 0, alloc);
 	
-	rapidjson::Value data(rapidjson::kObjectType);
-	std::string serverId = guildId.empty() ? channelId : guildId;
-	data.AddMember("server_id", rapidjson::Value(serverId.c_str(), alloc), alloc);
-	data.AddMember("user_id", rapidjson::Value(DiscordClient::getInstance().getCurrentUser().id.c_str(), alloc), alloc);
-	data.AddMember("session_id", rapidjson::Value(DiscordClient::getInstance().getSessionId().c_str(), alloc), alloc);
-	data.AddMember("token", rapidjson::Value(voiceToken.c_str(), alloc), alloc);
+	// Use wss:// as required by Discord Voice Gateway
+	std::string wsUrl = "wss://" + voiceEndpoint + "/?v=4";
+	Logger::log("[Voice] Connecting to Voice WebSocket: %s", wsUrl.c_str());
 	
-	d.AddMember("d", data, alloc);
-
-	rapidjson::StringBuffer buffer;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-	d.Accept(writer);
-
-	voiceWs.send(buffer.GetString());
-	Logger::log("[Voice] Sent Identify");
-}
-
-void VoiceClient::sendVoiceSpeaking() {
-	rapidjson::Document d;
-	d.SetObject();
-	auto &alloc = d.GetAllocator();
-
-	d.AddMember("op", 5, alloc);
-	
-	rapidjson::Value data(rapidjson::kObjectType);
-	data.AddMember("speaking", 1, alloc);
-	data.AddMember("delay", 0, alloc);
-	data.AddMember("ssrc", (uint64_t)ssrc, alloc);
-	
-	d.AddMember("d", data, alloc);
-
-	rapidjson::StringBuffer buffer;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-	d.Accept(writer);
-
-	voiceWs.send(buffer.GetString());
-	Logger::log("[Voice] Sent Speaking (op 5)");
-}
-
-void VoiceClient::performIpDiscovery() {
-	Logger::log("[Voice] Performing IP Discovery (SSRC: %u)", ssrc);
-	uint8_t packet[74] = {0};
-	// Opcode 1 (Request), Length 70
-	packet[0] = 0x00;
-	packet[1] = 0x01;
-	packet[2] = 0x00;
-	packet[3] = 0x46;
-	
-	// SSRC deve essere in Big Endian
-	uint32_t ssrcBE = __builtin_bswap32(ssrc);
-	memcpy(packet + 4, &ssrcBE, 4);
-
-	udp.send(packet, 74);
-	lastDiscoveryTime = osGetTime();
-	discoveryRetries++;
+	voiceWs.connect(wsUrl);
 }
 
 void VoiceClient::sendSelectProtocol(const std::string &ip, int port) {
@@ -473,61 +170,54 @@ void VoiceClient::update() {
 				}
 				micAccumulator.clear();
 			}
+		}
 	}
 }
 
 void VoiceClient::encryptAudioPacket(const uint8_t *opus, size_t len, std::vector<uint8_t> &out) {
-	// 12 bytes RTP header
 	uint8_t header[12];
-	header[0] = 0x80;
-	header[1] = 0x78;
+	header[0] = 0x80; // RTP version 2
+	header[1] = 0x78; // Payload type (120 for Opus)
+	
 	header[2] = (sequence >> 8) & 0xFF;
-	header[3] = (sequence >> 0) & 0xFF;
+	header[3] = sequence & 0xFF;
+	
 	header[4] = (timestamp >> 24) & 0xFF;
 	header[5] = (timestamp >> 16) & 0xFF;
 	header[6] = (timestamp >> 8) & 0xFF;
-	header[7] = (timestamp >> 0) & 0xFF;
+	header[7] = timestamp & 0xFF;
+	
 	header[8] = (ssrc >> 24) & 0xFF;
 	header[9] = (ssrc >> 16) & 0xFF;
 	header[10] = (ssrc >> 8) & 0xFF;
-	header[11] = (ssrc >> 0) & 0xFF;
+	header[11] = ssrc & 0xFF;
 
-	uint8_t nonce[24] = {0};
+	// Nonce per xsalsa20_poly1305 è l'header RTP di 12 byte seguito da 12 byte di zero
+	uint8_t nonce[24];
 	memcpy(nonce, header, 12);
+	memset(nonce + 12, 0, 12);
 
-	out.resize(12 + len + crypto_secretbox_MACBYTES);
+	out.resize(12 + len + 16); // 12 header + len data + 16 MAC
 	memcpy(out.data(), header, 12);
-
+	
 	crypto_secretbox_easy(out.data() + 12, opus, len, nonce, secretKey);
-
+	
 	sequence++;
-	timestamp += 960; // RTP timestamp per Opus (RFC 7587) usa sempre 48000Hz (20ms * 48000 = 960)
+	timestamp += 320; // 20ms of 16kHz audio
 }
 
 bool VoiceClient::decryptAudioPacket(const uint8_t *data, size_t len, std::vector<uint8_t> &out) {
-	if (len <= 12 + crypto_secretbox_MACBYTES) return false;
+	if (len < 12 + 16) return false;
 
-	int csrc_count = data[0] & 0x0F;
-	bool has_ext = (data[0] & 0x10) != 0;
-	size_t header_len = 12 + csrc_count * 4;
-
-	if (len <= header_len) return false;
-
-	if (has_ext) {
-		if (len <= header_len + 4) return false;
-		uint16_t ext_len = (data[header_len + 2] << 8) | data[header_len + 3];
-		header_len += 4 + ext_len * 4;
-	}
-
-	if (len <= header_len + crypto_secretbox_MACBYTES) return false;
-
-	uint8_t nonce[24] = {0};
+	// L'header RTP è di 12 byte
+	uint8_t nonce[24];
 	memcpy(nonce, data, 12);
+	memset(nonce + 12, 0, 12);
 
-	size_t cipherLen = len - header_len;
-	out.resize(cipherLen - crypto_secretbox_MACBYTES);
+	size_t cipherLen = len - 12;
+	out.resize(cipherLen - 16);
 
-	if (crypto_secretbox_open_easy(out.data(), data + header_len, cipherLen, nonce, secretKey) != 0) {
+	if (crypto_secretbox_open_easy(out.data(), data + 12, cipherLen, nonce, secretKey) != 0) {
 		return false;
 	}
 
@@ -535,6 +225,7 @@ bool VoiceClient::decryptAudioPacket(const uint8_t *data, size_t len, std::vecto
 }
 
 bool VoiceClient::isUserSpeaking(const std::string &userId) const {
+	std::lock_guard<std::recursive_mutex> lock(voiceMutex);
 	auto it = speakingStates.find(userId);
 	if (it != speakingStates.end()) {
 		return it->second;

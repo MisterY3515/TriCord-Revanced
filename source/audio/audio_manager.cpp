@@ -37,6 +37,8 @@ void AudioManager::playSystemSound(SystemSound sound) {
 	// Buffer statici per evitare leak di linearAlloc
 	static int16_t *joinBuf = nullptr;
 	static int16_t *leaveBuf = nullptr;
+	static int16_t *muteBuf = nullptr;
+	static int16_t *unmuteBuf = nullptr;
 	const int duration = 16000 * 0.15; // 150ms
 
 	if (!joinBuf) {
@@ -61,7 +63,38 @@ void AudioManager::playSystemSound(SystemSound sound) {
 		}
 	}
 
-	int16_t *targetBuf = (sound == SystemSound::JOIN) ? joinBuf : leaveBuf;
+	if (!muteBuf) {
+		muteBuf = (int16_t *)linearAlloc(duration * 2);
+		if (muteBuf) {
+			for (int i = 0; i < duration; i++) {
+				float freq = 660.0f; // Tono costante medio
+				float vol = (i < duration / 2) ? 6000.0f : 0.0f; // Beep corto
+				muteBuf[i] = (int16_t)(vol * sinf(2.0f * M_PI * freq * i / 16000.0f));
+			}
+			DSP_FlushDataCache(muteBuf, duration * 2);
+		}
+	}
+
+	if (!unmuteBuf) {
+		unmuteBuf = (int16_t *)linearAlloc(duration * 2);
+		if (unmuteBuf) {
+			for (int i = 0; i < duration; i++) {
+				float freq = 990.0f; // Tono costante alto
+				float vol = (i < duration / 2) ? 6000.0f : 0.0f; // Beep corto
+				unmuteBuf[i] = (int16_t)(vol * sinf(2.0f * M_PI * freq * i / 16000.0f));
+			}
+			DSP_FlushDataCache(unmuteBuf, duration * 2);
+		}
+	}
+
+	int16_t *targetBuf = nullptr;
+	switch(sound) {
+		case SystemSound::JOIN: targetBuf = joinBuf; break;
+		case SystemSound::LEAVE: targetBuf = leaveBuf; break;
+		case SystemSound::MUTE: targetBuf = muteBuf; break;
+		case SystemSound::UNMUTE: targetBuf = unmuteBuf; break;
+	}
+	
 	if (!targetBuf) return;
 
 	static ndspWaveBuf sBuf;

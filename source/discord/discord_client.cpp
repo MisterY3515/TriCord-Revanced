@@ -122,6 +122,9 @@ void DiscordClient::shutdown() {
 		Logger::log("DiscordClient::shutdown - detaching network thread");
 		networkThread.detach();
 	}
+	
+	// Cleanup esplicito dei socket e dei buffer
+	// (Aggiungi qui eventuali cleanup specifici se necessari)
 
 	Logger::log("DiscordClient::shutdown complete");
 }

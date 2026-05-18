@@ -1,4 +1,5 @@
 #include "ui/voice_screen.h"
+#include "core/config.h"
 #include "core/i18n.h"
 #include "discord/avatar_cache.h"
 #include "discord/discord_client.h"
@@ -138,19 +139,19 @@ void VoiceScreen::update() {
 			return;
 		}
 		
-		if (kDown & KEY_Y) {
-			auto &vc = Discord::VoiceClient::getInstance();
-			vc.setMuted(!vc.isMuted());
-			ScreenManager::getInstance().showToast(
-			    vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
-		}
-		
-		if (kDown & KEY_X) {
+		if (kDown & KEY_Y) { // Changed from X to Y to match bottom bar
 			Discord::VoiceClient::getInstance().leaveChannel();
 			ScreenManager::getInstance().showToast("Left voice channel");
 			// Non serve returnToPreviousScreen() perché isInChannel() ora è false
 			// e ScreenManager tornerà indietro automaticamente nel check all'inizio di update()
 			return;
+		}
+
+		if (kDown & KEY_X) { // Changed from Y to X to match bottom bar
+			auto &vc = Discord::VoiceClient::getInstance();
+			vc.setMuted(!vc.isMuted());
+			ScreenManager::getInstance().showToast(
+			    vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
 		}
 
 		// Touch input - long press detection
@@ -272,9 +273,26 @@ void VoiceScreen::renderBottom(C3D_RenderTarget *target) {
 
 	auto &vc = Discord::VoiceClient::getInstance();
 	if (!vc.isInChannel()) {
-		drawCenteredText(100.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), "Not in a voice channel", 320.0f);
+		drawCenteredText(100.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), TR("voice.no_users"), 320.0f);
 		return;
 	}
+
+	// Bottom Bar
+	float barH = 22.0f;
+	float barY = BOTTOM_SCREEN_HEIGHT - barH;
+	
+	// Mute/Unmute (X)
+	u32 muteColor = vc.isMuted() ? C2D_Color32(200, 60, 60, 255) : ScreenManager::colorAccent();
+	C2D_DrawRectSolid(0, barY, 0.9f, 160, barH, muteColor);
+	std::string muteStr = vc.isMuted() ? "\uE002 " + TR("voice.unmuted") : "\uE002 " + TR("voice.muted");
+	float mw = measureText(muteStr, 0.45f, 0.45f);
+	drawText((160.0f - mw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, ScreenManager::colorWhite(), muteStr);
+
+	// Leave (Y)
+	C2D_DrawRectSolid(160, barY, 0.9f, 160, barH, C2D_Color32(200, 60, 60, 255));
+	std::string leaveStr = "\uE003 " + TR("voice.leave");
+	float lw = measureText(leaveStr, 0.45f, 0.45f);
+	drawText(160.0f + (160.0f - lw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, ScreenManager::colorWhite(), leaveStr);
 
 	// Header
 	float headerH = 30.0f;

@@ -7,7 +7,7 @@
 
 namespace Audio {
 
-enum class SystemSound { JOIN, LEAVE };
+enum class SystemSound { JOIN, LEAVE, MUTE, UNMUTE };
 
 class AudioManager {
   public:

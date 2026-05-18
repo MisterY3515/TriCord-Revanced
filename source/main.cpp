@@ -58,19 +58,23 @@ int main(int argc, char **argv) {
 		Discord::DiscordClient::getInstance().update();
 		Discord::VoiceClient::getInstance().update();
 
-		if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
+	if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
 			break;
 		}
 
 		UI::ScreenManager::getInstance().render();
 	}
 
+	Logger::log("TriCord - Shutting down...");
+	
+	// Shutdown singletons explicitly before services exit
 	Discord::VoiceClient::getInstance().leaveChannel();
 	UI::ScreenManager::getInstance().shutdown();
 	UI::ImageManager::getInstance().shutdown();
 	Discord::DiscordClient::getInstance().shutdown();
 	Audio::AudioManager::getInstance().shutdown();
 	Network::NetworkManager::getInstance().shutdown();
+
 	psExit();
 	romfsExit();
 	C2D_Fini();
@@ -82,5 +86,6 @@ int main(int argc, char **argv) {
 		free(soc_sharedmem_ptr);
 	}
 
+	Logger::log("TriCord - Shutdown complete");
 	return 0;
 }
