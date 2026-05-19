@@ -19,6 +19,7 @@ static const size_t SOC_SHAREDMEM_SIZE = 0x200000;
 static u32 *soc_sharedmem_ptr = NULL;
 
 int main(int argc, char **argv) {
+	Logger::setCrashContext("startup: begin");
 	osSetSpeedupEnable(true);
 	gfxInitDefault();
 
@@ -35,7 +36,9 @@ int main(int argc, char **argv) {
 	psInit();
 
 	Logger::init();
+	Logger::setCrashContext("startup: logger initialized");
 	Logger::log("TriCord - Discord for 3DS starting...");
+	Logger::setCrashContext("startup: load config");
 	Config::getInstance().load();
 	Network::NetworkManager::getInstance().init(3, 2);
 
@@ -50,27 +53,37 @@ int main(int argc, char **argv) {
 	Audio::AudioManager::getInstance().init();
 	Discord::DiscordClient::getInstance().init();
 	UI::ScreenManager::getInstance().init();
+	Logger::setCrashContext("main loop: entering aptMainLoop");
 
 	while (aptMainLoop()) {
 		hidScanInput();
 
+		Logger::setCrashContext("main loop: ScreenManager::update");
 		UI::ScreenManager::getInstance().update();
+		Logger::setCrashContext("main loop: DiscordClient::update");
 		Discord::DiscordClient::getInstance().update();
+		Logger::setCrashContext("main loop: VoiceClient::update");
 		Discord::VoiceClient::getInstance().update();
 
-		if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
+	if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
 			break;
 		}
 
+		Logger::setCrashContext("main loop: ScreenManager::render");
 		UI::ScreenManager::getInstance().render();
 	}
 
-	Discord::VoiceClient::getInstance().leaveChannel();
+	Logger::setCrashContext("shutdown: begin");
+	Logger::log("TriCord - Shutting down...");
+	
+	// Shutdown singletons explicitly before services exit
+	Discord::VoiceClient::getInstance().shutdown();
 	UI::ScreenManager::getInstance().shutdown();
 	UI::ImageManager::getInstance().shutdown();
 	Discord::DiscordClient::getInstance().shutdown();
 	Audio::AudioManager::getInstance().shutdown();
 	Network::NetworkManager::getInstance().shutdown();
+
 	psExit();
 	romfsExit();
 	C2D_Fini();
@@ -82,5 +95,7 @@ int main(int argc, char **argv) {
 		free(soc_sharedmem_ptr);
 	}
 
+	Logger::log("TriCord - Shutdown complete");
+	Logger::shutdown();
 	return 0;
 }

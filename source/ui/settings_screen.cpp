@@ -180,6 +180,31 @@ void SettingsScreen::onEnter() {
 	typing.onUpdate = [](int val) { Config::getInstance().setTypingIndicatorEnabled(val == 1); };
 	allItems.push_back(typing);
 
+	// VOICE
+	allItems.push_back({"Voice Chats", "", SettingItemType::SECTION_HEADER});
+
+	SettingItem voiceChats;
+	voiceChats.label = "Enable Voice Chats";
+	voiceChats.description = "Allow the client to connect to voice channels.";
+	voiceChats.type = SettingItemType::TOGGLE;
+	voiceChats.value = Config::getInstance().isVoiceChatsEnabled() ? 1 : 0;
+	voiceChats.min = 0;
+	voiceChats.max = 1;
+	voiceChats.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	voiceChats.onUpdate = [](int val) { Config::getInstance().setVoiceChatsEnabled(val == 1); };
+	allItems.push_back(voiceChats);
+
+	SettingItem daveE2ee;
+	daveE2ee.label = "Enable DAVE/MLS/E2EE";
+	daveE2ee.description = "Experimental: Advertise support for Discord's modern voice E2EE.";
+	daveE2ee.type = SettingItemType::TOGGLE;
+	daveE2ee.value = Config::getInstance().isDaveEnabled() ? 1 : 0;
+	daveE2ee.min = 0;
+	daveE2ee.max = 1;
+	daveE2ee.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	daveE2ee.onUpdate = [](int val) { Config::getInstance().setDaveEnabled(val == 1); };
+	allItems.push_back(daveE2ee);
+
 	// DEVELOPER
 	SettingItem devSection;
 	devSection.label = "Developer Options";
@@ -199,6 +224,22 @@ void SettingsScreen::onEnter() {
 	fileLogging.isDeveloper = true;
 	allItems.push_back(fileLogging);
 
+	// ADVANCED
+	allItems.push_back({TR("settings.section.advanced"), "", SettingItemType::SECTION_HEADER});
+
+	SettingItem debugMode;
+	debugMode.label = "Debug Mode";
+	debugMode.description = "Enables advanced developer options and log dumping.";
+	debugMode.type = SettingItemType::TOGGLE;
+	debugMode.value = isDeveloperMode ? 1 : 0;
+	debugMode.min = 0;
+	debugMode.max = 1;
+	debugMode.onUpdate = [this](int val) {
+		this->isDeveloperMode = (val != 0);
+		this->scheduleRefresh = true;
+	};
+	allItems.push_back(debugMode);
+
 	SettingItem sslVerify;
 	sslVerify.label = "SSL Verification";
 	sslVerify.description = "Enable or disable SSL certificate validation";
@@ -210,6 +251,33 @@ void SettingsScreen::onEnter() {
 	sslVerify.onUpdate = [](int val) { Config::getInstance().setSslVerificationDisabled(val == 0); };
 	sslVerify.isDeveloper = true;
 	allItems.push_back(sslVerify);
+
+	SettingItem chatLogging;
+	chatLogging.label = "Dump Logs to Chat";
+	chatLogging.description = "Dumps the current debug logs into the active Discord channel.";
+	chatLogging.type = SettingItemType::ACTION;
+	chatLogging.action = []() {
+		auto logs = Logger::getRecentLogs();
+		if (logs.empty()) {
+			ScreenManager::getInstance().showToast("No logs to dump!");
+			return;
+		}
+		std::string msg = "```\n";
+		for (const auto &l : logs) {
+			msg += l + "\n";
+			if (msg.length() > 1800) break;
+		}
+		msg += "```";
+		auto &dc = Discord::DiscordClient::getInstance();
+		if (!dc.getSelectedChannelId().empty()) {
+			dc.sendMessageAsync(dc.getSelectedChannelId(), msg, [](bool) {});
+			ScreenManager::getInstance().showToast("Logs dumped to channel.");
+		} else {
+			ScreenManager::getInstance().showToast("Select a channel first!");
+		}
+	};
+	chatLogging.isDeveloper = true;
+	allItems.push_back(chatLogging);
 
 	refreshVisibleItems();
 }

@@ -221,11 +221,16 @@ void ScreenManager::update() {
 		return;
 	}
 
-	if ((kDown & KEY_START) && Discord::VoiceClient::getInstance().isConnected()) {
-		if (currentType == ScreenType::VOICE_CALL) {
-			returnToPreviousScreen();
-		} else {
-			pushScreen(ScreenType::VOICE_CALL);
+	if ((kDown & KEY_START) && Discord::VoiceClient::getInstance().isInChannel()) {
+		static u64 lastStartPress = 0;
+		u64 now = osGetTime();
+		if (now - lastStartPress > 500) { // 500ms debounce
+			lastStartPress = now;
+			if (currentType == ScreenType::VOICE_CALL) {
+				returnToPreviousScreen();
+			} else {
+				pushScreen(ScreenType::VOICE_CALL);
+			}
 		}
 	}
 
@@ -265,16 +270,16 @@ void ScreenManager::update() {
 			vc.leaveChannel();
 			showToast("Left voice channel");
 		}
-	} else if (kDown & KEY_X) {
+	} else if (kDown & KEY_X) { // Changed back to KEY_X as requested
 		auto &vc = Discord::VoiceClient::getInstance();
-		if (vc.isInChannel()) {
+		if (vc.isInChannel() && currentType != ScreenType::VOICE_CALL) {
 			vc.setMuted(!vc.isMuted());
 			showToast(vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
 		}
 	}
 
-	// Touch controls for Voice Overlay
-	if ((kDown & KEY_TOUCH) && Discord::VoiceClient::getInstance().isInChannel()) {
+	// Touch controls for Voice Overlay - Only if not in Voice Screen
+	if ((kDown & KEY_TOUCH) && Discord::VoiceClient::getInstance().isInChannel() && currentType != ScreenType::VOICE_CALL) {
 		touchPosition touch;
 		hidTouchRead(&touch);
 		if (touch.py >= BOTTOM_SCREEN_HEIGHT - 22.0f) {
@@ -287,6 +292,8 @@ void ScreenManager::update() {
 				vc.leaveChannel();
 				showToast("Left voice channel");
 			}
+			// Block touch from reaching the current screen
+			return;
 		}
 	}
 
@@ -335,7 +342,7 @@ void ScreenManager::render() {
 		drawToast();
 	}
 
-	if (Discord::VoiceClient::getInstance().isInChannel()) {
+	if (Discord::VoiceClient::getInstance().isInChannel() && currentType != ScreenType::VOICE_CALL) {
 		renderVoiceOverlay();
 	}
 
@@ -359,7 +366,7 @@ void ScreenManager::renderVoiceOverlay() {
 	C2D_DrawRectSolid(0.0f, barY, 0.9f, halfW, barH, muteColor);
 	C2D_DrawRectSolid(0.0f, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
 	
-	std::string muteStr = vc.isMuted() ? "\uE002 Unmute" : "\uE002 Mute";
+	std::string muteStr = vc.isMuted() ? "\uE002 Unmute" : "\uE002 Mute"; // \uE002 is X
 	C2D_Text mText;
 	C2D_TextParse(&mText, textBuf, muteStr.c_str());
 	C2D_TextOptimize(&mText);
@@ -371,7 +378,7 @@ void ScreenManager::renderVoiceOverlay() {
 	C2D_DrawRectSolid(halfW, barY, 0.9f, halfW, barH, leaveColor);
 	C2D_DrawRectSolid(halfW, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
 	
-	std::string leaveStr = "\uE001 Leave Call";
+	std::string leaveStr = "\uE004+\uE001 Leave Call"; // \uE004 is L, \uE001 is B
 	C2D_Text lText;
 	C2D_TextParse(&lText, textBuf, leaveStr.c_str());
 	C2D_TextOptimize(&lText);

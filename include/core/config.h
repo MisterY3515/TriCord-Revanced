@@ -115,6 +115,12 @@ class Config {
 	bool isFileLoggingEnabled() const { return fileLoggingEnabled; }
 	void setFileLoggingEnabled(bool enabled);
 
+	bool isVoiceChatsEnabled() const { return voiceChatsEnabled; }
+	void setVoiceChatsEnabled(bool enabled);
+
+	bool isDaveEnabled() const { return daveEnabled; }
+	void setDaveEnabled(bool enabled);
+
 	bool isShowAvatarsEnabled() const { return showAvatars; }
 	void setShowAvatarsEnabled(bool enabled);
 	bool isShowServerIconsEnabled() const { return showServerIcons; }
@@ -145,6 +151,8 @@ class Config {
 	bool sslVerificationDisabled;
 	bool showAvatars;
 	bool showServerIcons;
+	bool voiceChatsEnabled;
+	bool daveEnabled;
 
 	bool customThemeEnabled;
 	std::string selectedThemeName;

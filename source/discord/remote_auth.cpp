@@ -26,9 +26,7 @@ RemoteAuth::RemoteAuth()
 
 RemoteAuth::~RemoteAuth() {
 	cancel();
-	if (workerThread.joinable()) {
-		workerThread.join();
-	}
+	joinWorkerThread();
 	cleanupRSA();
 }
 
@@ -43,12 +41,12 @@ bool RemoteAuth::start() {
 	fingerprint = "";
 	ticket = "";
 
-	if (initSuccess) {
+	if (initSuccess.load()) {
 		Logger::log("[RemoteAuth] Keys already generated, proceeding to connect");
 		setState(RemoteAuthState::CONNECTING, Core::I18n::getInstance().get("login.status.connecting_auth"));
 	}
 
-	if (!initSuccess) {
+	if (!initSuccess.load()) {
 		setState(RemoteAuthState::CONNECTING, Core::I18n::getInstance().get("login.status.generating_keys"));
 		prepare();
 	} else {
@@ -59,18 +57,15 @@ bool RemoteAuth::start() {
 }
 
 void RemoteAuth::prepare() {
-	if (isInitializing) {
-		Logger::log("[RemoteAuth] Setup already in progress");
+	if (isInitializing.load()) {
+		Logger::log("[RemoteAuth] Setup already in progress, not restarting init thread");
 		return;
 	}
 
 	Logger::log("[RemoteAuth] Preparing RSA keys (Background)...");
+	joinWorkerThread();
 	isInitializing = true;
 	initSuccess = false;
-
-	if (workerThread.joinable()) {
-		workerThread.join();
-	}
 
 	workerThread = std::thread([this]() { runInit(); });
 }
@@ -98,6 +93,9 @@ void RemoteAuth::cancel() {
 	}
 
 	Logger::log("[RemoteAuth] cancel() calling ws.disconnect()");
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
 	ws.disconnect();
 	Logger::log("[RemoteAuth] cancel() ws.disconnect() completed");
 
@@ -110,9 +108,12 @@ void RemoteAuth::cancel() {
 
 void RemoteAuth::poll() {
 	ws.poll();
+	if (!isInitializing.load()) {
+		joinWorkerThread();
+	}
 
-	if (state == RemoteAuthState::CONNECTING && !isInitializing) {
-		if (!initSuccess) {
+	if (state == RemoteAuthState::CONNECTING && !isInitializing.load()) {
+		if (!initSuccess.load()) {
 			setState(RemoteAuthState::FAILED, Core::I18n::getInstance().get("login.status.init_rsa_failed"));
 			return;
 		}
@@ -294,6 +295,12 @@ void RemoteAuth::setState(RemoteAuthState newState, const std::string &info) {
 	state = newState;
 	if (onStateChange) {
 		onStateChange(state, info);
+	}
+}
+
+void RemoteAuth::joinWorkerThread() {
+	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
+		workerThread.join();
 	}
 }
 

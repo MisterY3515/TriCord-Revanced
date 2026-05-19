@@ -23,6 +23,7 @@ enum class WebSocketOpcode : uint8_t {
 class WebSocketClient {
   public:
 	using MessageCallback = std::function<void(std::string &)>;
+	using BinaryMessageCallback = std::function<void(std::vector<uint8_t> &)>;
 	using ErrorCallback = std::function<void(const std::string &)>;
 	using CloseCallback = std::function<void(int code, const std::string &reason)>;
 
@@ -41,10 +42,12 @@ class WebSocketClient {
 	bool sendBinary(const std::vector<uint8_t> &data);
 
 	void setOnMessage(MessageCallback callback);
+	void setOnBinaryMessage(BinaryMessageCallback callback);
 	void setOnError(ErrorCallback callback);
 	void setOnClose(CloseCallback callback);
 
 	void poll();
+	void forceClose();
 
   private:
 	int sockfd;
@@ -55,10 +58,13 @@ class WebSocketClient {
 	bool useTLS;
 
 	MessageCallback onMessage;
+	BinaryMessageCallback onBinaryMessage;
 	ErrorCallback onError;
 	CloseCallback onClose;
 
 	std::vector<uint8_t> receiveBuffer;
+	WebSocketOpcode fragmentedOpcode;
+	bool fragmentedMessageInProgress;
 
 	void *sslContext;
 	void *sslConfig;
@@ -75,9 +81,15 @@ class WebSocketClient {
 	bool recvExact(void *data, size_t len);
 
 	bool sendFrame(WebSocketOpcode opcode, const void *data, size_t len);
-	bool receiveFrame(std::string &message);
+	bool sendFrameLocked(WebSocketOpcode opcode, const void *data, size_t len);
+
+	enum class ReceiveResult { NONE, TEXT_MESSAGE, BINARY_MESSAGE, CLOSE, ERROR };
+	ReceiveResult receiveFrame(std::string &message, std::vector<uint8_t> &binaryMessage, int &closeCode,
+	                           std::string &closeReason, std::string &error);
+	void disconnectLocked(int code, const std::string &reason, bool sendCloseFrame);
 
 	std::mutex sendMutex;
+	mutable std::mutex ioMutex;
 
 	std::string generateWebSocketKey();
 };

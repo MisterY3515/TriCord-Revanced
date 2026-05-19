@@ -92,40 +92,81 @@ DiscordClient::DiscordClient()
 	workerThread = std::thread(&DiscordClient::workerLoop, this);
 }
 
-DiscordClient::~DiscordClient() { shutdown(); }
-
-void DiscordClient::shutdown() {
-	Logger::log("DiscordClient::shutdown starting...");
+DiscordClient::~DiscordClient() {
+	shuttingDown.store(true);
 	{
 		std::lock_guard<std::mutex> lock(queueMutex);
 		stopWorker = true;
 	}
 	queueCv.notify_all();
-	if (workerThread.joinable()) {
+	ws.setOnMessage({});
+	ws.setOnMessage(nullptr);
+	ws.setOnError(nullptr);
+	ws.setOnClose(nullptr);
+	ws.forceClose();
+	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
 		workerThread.join();
 	}
+	// Disconnect WebSocket OUTSIDE of mutex to unblock network thread's poll()
+	ws.setOnMessage(nullptr);
+	ws.setOnError(nullptr);
+	ws.setOnClose(nullptr);
+	ws.disconnect();
+
+	// Now safe to join — network thread will see DISCONNECTED state and exit
+	if (networkThread.joinable() && networkThread.get_id() != std::this_thread::get_id()) {
+		networkThread.join();
+	}
+}
+
+void DiscordClient::shutdown() {
+	Logger::log("DiscordClient::shutdown starting...");
+	shuttingDown.store(true);
+	
+	// Prima fermiamo il worker thread e svuotiamo la coda
+	{
+		std::lock_guard<std::mutex> lock(queueMutex);
+		stopWorker = true;
+	}
+	queueCv.notify_all();
+	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
+		workerThread.join();
+	}
+
+	// Poi disconnettiamo il network thread
 	disconnect();
+	
+	// Cleanup esplicito dei socket e dei buffer
+	// (Aggiungi qui eventuali cleanup specifici se necessari)
+
 	Logger::log("DiscordClient::shutdown complete");
 }
 
 bool DiscordClient::connect(const std::string &token) {
-	std::lock_guard<std::recursive_mutex> lock(clientMutex);
-	if (state != ConnectionState::DISCONNECTED && state != ConnectionState::DISCONNECTED_ERROR) {
-		Logger::log("Connect called but state is %d", (int)state);
-		return false;
+	bool joinPreviousThread = false;
+	{
+		std::lock_guard<std::recursive_mutex> lock(clientMutex);
+		if (state != ConnectionState::DISCONNECTED && state != ConnectionState::DISCONNECTED_ERROR) {
+			Logger::log("Connect called but state is %d", (int)state);
+			return false;
+		}
+
+		if (isConnecting) {
+			Logger::log("Connect called but already in progress");
+			return false;
+		}
+
+		this->token = token;
+		authFailed.store(false);
+		shuttingDown.store(false);
+		isConnecting = true;
+		stopWorker = false;
+		setState(ConnectionState::CONNECTING, "Starting network thread...");
+		joinPreviousThread = networkThread.joinable();
 	}
 
-	if (isConnecting) {
-		Logger::log("Connect called but already in progress");
-		return false;
-	}
-
-	this->token = token;
-	authFailed.store(false);
-	isConnecting = true;
-	setState(ConnectionState::CONNECTING, "Starting network thread...");
-
-	if (networkThread.joinable()) {
+	if (joinPreviousThread && networkThread.get_id() != std::this_thread::get_id()) {
+		Logger::log("DiscordClient::connect - joining previous network thread");
 		networkThread.join();
 	}
 
@@ -134,6 +175,9 @@ bool DiscordClient::connect(const std::string &token) {
 		sendQueue.clear();
 	}
 
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
 	networkThread = std::thread(&DiscordClient::runNetworkThread, this, token);
 	return true;
 }
@@ -154,9 +198,10 @@ void DiscordClient::logout() {
 }
 
 void DiscordClient::disconnect() {
+	std::thread::id currentThreadId = std::this_thread::get_id();
 	{
 		std::lock_guard<std::recursive_mutex> lock(clientMutex);
-		if (state == ConnectionState::DISCONNECTED) {
+		if (state == ConnectionState::DISCONNECTED && !networkThread.joinable()) {
 			return;
 		}
 
@@ -165,14 +210,22 @@ void DiscordClient::disconnect() {
 		setState(ConnectionState::DISCONNECTED, "Disconnected");
 		isConnecting = false;
 	}
+	shuttingDown.store(true);
 
-	// Disconnect WebSocket OUTSIDE of mutex to unblock network thread's poll()
-	ws.disconnect();
+	ws.setOnMessage({});
+	ws.setOnError({});
+	ws.setOnClose({});
 
-	// Now safe to join — network thread will see DISCONNECTED state and exit
-	if (networkThread.joinable()) {
+	// Force-close the underlying socket to unblock any blocking I/O in the network thread
+	ws.forceClose();
+
+	// Now the network thread can exit; wait for it
+	if (networkThread.joinable() && networkThread.get_id() != currentThreadId) {
 		networkThread.join();
 	}
+
+	// Safe to fully clean up WebSocket now
+	ws.disconnect();
 
 	{
 		std::lock_guard<std::mutex> qLock(queueMutex);
@@ -195,15 +248,25 @@ void DiscordClient::queueSend(const std::string &message) {
 void DiscordClient::runNetworkThread(const std::string &token) {
 	Logger::log("[Network] Thread started");
 
-	while (state != ConnectionState::DISCONNECTED) {
-		ws.setOnMessage([this](std::string &msg) { handleMessage(msg); });
+	while (!shuttingDown.load() && state != ConnectionState::DISCONNECTED) {
+		ws.setOnMessage([this](std::string &msg) {
+			if (!shuttingDown.load()) {
+				handleMessage(msg);
+			}
+		});
 
 		ws.setOnError([this](const std::string &err) {
+			if (shuttingDown.load()) {
+				return;
+			}
 			setStatus("Error: " + err);
 			Logger::log("[Gateway] Error: %s", err.c_str());
 		});
 
 		ws.setOnClose([this](int code, const std::string &reason) {
+			if (shuttingDown.load()) {
+				return;
+			}
 			Logger::log("[Gateway] Closed: %d %s", code, reason.c_str());
 			setStatus("Disconnected: " + std::to_string(code));
 			if (code == 4004) {
@@ -220,8 +283,8 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 
 			uint64_t delay = sessionId.empty() ? 5 : 0;
 
-			if (delay > 0) {
-				svcSleepThread(delay * 1000 * 1000 * 1000);
+			for (uint64_t i = 0; i < delay * 10 && state != ConnectionState::DISCONNECTED && !shuttingDown.load(); i++) {
+				svcSleepThread(100ULL * 1000 * 1000); // 100ms
 			}
 			continue;
 		}
@@ -232,7 +295,7 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 			isConnecting = false;
 		}
 
-		while (ws.isConnected() && state != ConnectionState::DISCONNECTED) {
+		while (ws.isConnected() && state != ConnectionState::DISCONNECTED && !shuttingDown.load()) {
 			ws.poll();
 
 			std::string msgToSend;
@@ -269,7 +332,7 @@ void DiscordClient::runNetworkThread(const std::string &token) {
 			svcSleepThread(5ULL * 1000 * 1000);
 		}
 
-		if (state == ConnectionState::DISCONNECTED) {
+		if (state == ConnectionState::DISCONNECTED || shuttingDown.load()) {
 			break;
 		}
 
@@ -408,7 +471,7 @@ void DiscordClient::setStatus(const std::string &message) {
 }
 
 void DiscordClient::handleMessage(std::string &message) {
-	if (message.empty()) {
+	if (message.empty() || shuttingDown.load()) {
 		return;
 	}
 
@@ -420,6 +483,9 @@ void DiscordClient::handleMessage(std::string &message) {
 }
 
 void DiscordClient::processMessage(std::string &message) {
+	if (shuttingDown.load()) {
+		return;
+	}
 	rapidjson::Document doc;
 
 	doc.ParseInsitu<rapidjson::kParseDefaultFlags | rapidjson::kParseInsituFlag>(&message[0]);
@@ -587,6 +653,8 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 	if (d.HasMember("guilds") && d["guilds"].IsArray()) {
 		const rapidjson::Value &guildsArr = d["guilds"];
 		Logger::log("[Gateway] Parsing %u guilds...", guildsArr.Size());
+		newGuilds.reserve(guildsArr.Size());
+		
 		setStatus(Core::I18n::getInstance().get("login.status.loading_guilds") + " (0/" +
 		          std::to_string(guildsArr.Size()) + ")...");
 
@@ -602,10 +670,11 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 	}
 
 	std::vector<Channel> newPrivateChannels;
-	setStatus(Core::I18n::getInstance().get("login.status.loading_direct_messages"));
 	if (d.HasMember("private_channels") && d["private_channels"].IsArray()) {
 		const rapidjson::Value &pcs = d["private_channels"];
 		Logger::log("[Gateway] Parsing %u private channels...", pcs.Size());
+		newPrivateChannels.reserve(pcs.Size());
+		setStatus(Core::I18n::getInstance().get("login.status.loading_direct_messages"));
 		for (rapidjson::SizeType i = 0; i < pcs.Size(); i++) {
 			Channel channel;
 			parseChannelObject(pcs[i], channel);
@@ -619,6 +688,7 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 		if (settings.HasMember("guild_folders") && settings["guild_folders"].IsArray()) {
 			std::vector<std::string> sortOrder;
 			const rapidjson::Value &foldersArr = settings["guild_folders"];
+			newGuildFolders.reserve(foldersArr.Size());
 
 			for (rapidjson::SizeType i = 0; i < foldersArr.Size(); i++) {
 				const rapidjson::Value &folderObj = foldersArr[i];
@@ -956,50 +1026,125 @@ void DiscordClient::handleSessionsReplace(const rapidjson::Value &d) {
 }
 
 void DiscordClient::handleVoiceStateUpdate(const rapidjson::Value &d) {
-	std::lock_guard<std::recursive_mutex> lock(clientMutex);
-	
+	std::string userId = Utils::Json::getString(d, "user_id");
+	std::string channelId = Utils::Json::getString(d, "channel_id");
+	std::string sessionId = Utils::Json::getString(d, "session_id");
 	std::string guildId = Utils::Json::getString(d, "guild_id");
-	if (guildId.empty()) return;
-	
-	for (auto &guild : guilds) {
-		if (guild.id == guildId) {
-			std::string userId = Utils::Json::getString(d, "user_id");
-			std::string channelId = Utils::Json::getString(d, "channel_id");
-			
-			for (auto it = guild.voiceStates.begin(); it != guild.voiceStates.end();) {
-				if (it->user_id == userId) {
-					it = guild.voiceStates.erase(it);
-				} else {
-					++it;
+
+	bool isCurrentUser = false;
+	bool shouldNotifyVoiceState = false;
+	bool shouldLeaveVoice = false;
+	std::string notifySessionId = sessionId;
+	std::string notifyGuildId = guildId;
+	std::string notifyChannelId = channelId;
+	std::string movedToChannelId;
+	std::string leftGuildId;
+
+	{
+		std::lock_guard<std::recursive_mutex> lock(clientMutex);
+		isCurrentUser = (userId == currentUser.id);
+
+		if (!guildId.empty()) {
+			for (auto &guild : guilds) {
+				if (guild.id != guildId) {
+					continue;
 				}
+
+				for (auto it = guild.voiceStates.begin(); it != guild.voiceStates.end();) {
+					if (it->user_id == userId) {
+						it = guild.voiceStates.erase(it);
+					} else {
+						++it;
+					}
+				}
+
+				if (!channelId.empty()) {
+					VoiceState state;
+					state.user_id = userId;
+					state.channel_id = channelId;
+					state.session_id = sessionId;
+					state.mute = Utils::Json::getBool(d, "mute");
+					state.deaf = Utils::Json::getBool(d, "deaf");
+					state.self_mute = Utils::Json::getBool(d, "self_mute");
+					state.self_deaf = Utils::Json::getBool(d, "self_deaf");
+					state.self_video = Utils::Json::getBool(d, "self_video");
+					guild.voiceStates.push_back(state);
+					notifySessionId = guild.voiceStates.back().session_id;
+				}
+
+				Logger::log("[Voice] User %s %s voice channel %s in guild %s", userId.c_str(),
+				            channelId.empty() ? "left" : "joined/moved to", channelId.c_str(), guildId.c_str());
+				break;
 			}
-			
-			if (!channelId.empty()) {
-				VoiceState state;
-				state.user_id = userId;
-				state.channel_id = channelId;
-				state.session_id = Utils::Json::getString(d, "session_id");
-				state.mute = Utils::Json::getBool(d, "mute");
-				state.deaf = Utils::Json::getBool(d, "deaf");
-				state.self_mute = Utils::Json::getBool(d, "self_mute");
-				state.self_deaf = Utils::Json::getBool(d, "self_deaf");
-				state.self_video = Utils::Json::getBool(d, "self_video");
-				guild.voiceStates.push_back(std::move(state));
-			}
-			
-			Logger::log("[Voice] User %s %s voice channel %s in guild %s", 
-						userId.c_str(), channelId.empty() ? "left" : "joined/moved to",
-						channelId.c_str(), guildId.c_str());
-			break;
 		}
+	}
+
+	if (!isCurrentUser) {
+		return;
+	}
+
+	if (channelId.empty()) {
+		leftGuildId = guildId;
+		shouldLeaveVoice = true;
+	} else {
+		const bool localVoiceActive = VoiceClient::getInstance().isInChannel();
+		const std::string localChannelId = VoiceClient::getInstance().getCurrentChannelId();
+		if (!localVoiceActive || channelId == localChannelId) {
+			shouldNotifyVoiceState = true;
+		} else {
+			movedToChannelId = channelId;
+			shouldLeaveVoice = true;
+		}
+	}
+
+	if (shouldNotifyVoiceState) {
+		VoiceClient::getInstance().onVoiceStateUpdate(notifySessionId, notifyGuildId, notifyChannelId);
+	}
+
+	if (!movedToChannelId.empty()) {
+		Logger::log("[Voice] Current user moved to another channel (%s), disconnecting local VoiceClient",
+		            movedToChannelId.c_str());
+		VoiceClient::getInstance().leaveChannel();
+		return;
+	}
+
+	if (shouldLeaveVoice) {
+		VoiceClient::getInstance().onVoiceStateUpdate("", leftGuildId, "");
+		Logger::log("[Voice] Current user left/kicked from channel, disconnecting VoiceClient");
+		VoiceClient::getInstance().leaveChannel();
 	}
 }
 
 void DiscordClient::handleVoiceServerUpdate(const rapidjson::Value &d) {
-	std::string token = Utils::Json::getString(d, "token");
-	std::string endpoint = Utils::Json::getString(d, "endpoint");
-	
+	std::string token;
+	std::string endpoint;
+	{
+		std::lock_guard<std::recursive_mutex> lock(clientMutex);
+		token = Utils::Json::getString(d, "token");
+		endpoint = Utils::Json::getString(d, "endpoint");
+	}
+
+	if (!VoiceClient::getInstance().isInChannel()) {
+		Logger::log("[Voice] Received VOICE_SERVER_UPDATE but not in a channel locally, ignoring.");
+		return;
+	}
+
 	VoiceClient::getInstance().onVoiceServerUpdate(token, endpoint);
+}
+
+std::vector<std::string> DiscordClient::getUsersInVoiceChannel(const std::string &channelId) {
+	std::lock_guard<std::recursive_mutex> lock(clientMutex);
+	std::vector<std::string> users;
+	if (channelId.empty()) return users;
+	
+	for (const auto &guild : guilds) {
+		for (const auto &vs : guild.voiceStates) {
+			if (vs.channel_id == channelId) {
+				users.push_back(vs.user_id);
+			}
+		}
+	}
+	return users;
 }
 
 void DiscordClient::sendVoiceStateUpdate(const std::string &guildId, const std::string &channelId, bool mute, bool deaf) {

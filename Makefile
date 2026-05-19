@@ -312,7 +312,7 @@ cia: $(OUTPUT).cia
 	@$(bin2o)
 
 ifneq ($(OS),Windows_NT)
-	-include $(DEPSDIR)/*.d
+-include $(DEPSDIR)/*.d
 endif
 
 #---------------------------------------------------------------------------------

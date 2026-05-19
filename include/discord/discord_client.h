@@ -242,6 +242,7 @@ class DiscordClient {
 
 	bool isConnecting;
 	bool stopWorker;
+	std::atomic<bool> shuttingDown{false};
 	std::atomic<bool> authFailed{false};
 	std::thread workerThread;
 	std::thread networkThread;

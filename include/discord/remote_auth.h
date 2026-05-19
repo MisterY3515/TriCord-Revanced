@@ -64,9 +64,10 @@ class RemoteAuth {
 	void *entropyContext;
 	std::string publicKeyBase64;
 
-	bool isInitializing;
-	bool initSuccess;
+	std::atomic<bool> isInitializing;
+	std::atomic<bool> initSuccess;
 	void runInit();
+	void joinWorkerThread();
 
 	// Callbacks
 	std::function<void(RemoteAuthState, const std::string &)> onStateChange;
