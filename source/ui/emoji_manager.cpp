@@ -166,9 +166,39 @@ void EmojiManager::shutdown() {
 EmojiManager::~EmojiManager() { shutdown(); }
 
 void EmojiManager::update() {
-	std::unique_lock<std::shared_mutex> lock(cacheMutex);
 	frameCounter++;
 
+	// Handle pending custom emojis from network threads
+	{
+		std::unique_lock<std::shared_mutex> lock(cacheMutex);
+		while (!pendingCustomEmojis.empty()) {
+			PendingEmoji pe = pendingCustomEmojis.back();
+			pendingCustomEmojis.pop_back();
+
+			auto it = emojiCache.find(pe.id);
+			if (it != emojiCache.end() && it->second.isLoading && pe.tiled.pixels) {
+				C3D_Tex *tex = (C3D_Tex *)malloc(sizeof(C3D_Tex));
+				if (C3D_TexInit(tex, pe.tiled.p2w, pe.tiled.p2h, GPU_RGBA8)) {
+					C3D_TexSetFilter(tex, GPU_LINEAR, GPU_LINEAR);
+					memcpy(tex->data, pe.tiled.pixels, pe.tiled.vramSize);
+					GSPGPU_FlushDataCache(tex->data, pe.tiled.vramSize);
+					it->second.tex = tex;
+					it->second.originalW = pe.tiled.w;
+					it->second.originalH = pe.tiled.h;
+				} else {
+					free(tex);
+				}
+				it->second.isLoading = false;
+				it->second.lastUsedFrame = frameCounter;
+			}
+
+			if (pe.tiled.pixels) {
+				free(pe.tiled.pixels);
+			}
+		}
+	}
+
+	std::unique_lock<std::shared_mutex> lock(cacheMutex);
 	int processed = 0;
 	u64 startTick = svcGetSystemTick();
 	const u64 TICK_LIMIT = 268123 * 3.5;
@@ -290,18 +320,27 @@ void EmojiManager::prefetchEmoji(const std::string &emojiId) {
 	Network::NetworkManager::getInstance().enqueue(
 	    url, "GET", "", Network::RequestPriority::INTERACTIVE, [this, emojiId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    int w, h;
-			    C3D_Tex *tex = Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(),
-			                                                       resp.body.size(), w, h);
-			    if (tex) {
+			    Utils::Image::TiledData tiled =
+			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(), 32, 32);
+
+			    if (tiled.pixels) {
 				    std::unique_lock<std::shared_mutex> lock(cacheMutex);
-				    EmojiInfo info;
-				    info.tex = tex;
-				    info.originalW = w;
-				    info.originalH = h;
-				    info.lastUsedFrame = frameCounter;
-				    info.isLoading = false;
-				    emojiCache[emojiId] = info;
+				    PendingEmoji pe;
+				    pe.id = emojiId;
+				    pe.tiled = tiled;
+				    pendingCustomEmojis.push_back(pe);
+			    } else {
+				    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+				    auto it = emojiCache.find(emojiId);
+				    if (it != emojiCache.end()) {
+					    it->second.isLoading = false;
+				    }
+			    }
+		    } else {
+			    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+			    auto it = emojiCache.find(emojiId);
+			    if (it != emojiCache.end()) {
+				    it->second.isLoading = false;
 			    }
 		    }
 	    });

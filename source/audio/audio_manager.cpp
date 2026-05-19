@@ -157,9 +157,16 @@ void AudioManager::init() {
 	} else {
 		ndspReady = true;
 		ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+		
+		// Voice playback channel
 		ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
 		ndspChnSetRate(0, kVoicePlaybackRate);
 		ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
+
+		// System sounds channel
+		ndspChnSetInterp(1, NDSP_INTERP_LINEAR);
+		ndspChnSetRate(1, 16000.0f);
+		ndspChnSetFormat(1, NDSP_FORMAT_MONO_PCM16);
 	}
 	
 	// Pre-allocate MIC buffer (linearAlloc required for shared memory)

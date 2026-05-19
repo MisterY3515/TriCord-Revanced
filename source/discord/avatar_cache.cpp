@@ -24,12 +24,21 @@ void AvatarCache::update() {
 		pendingAvatars.pop_back();
 
 		auto it = cache.find(pa.id);
-		if (it != cache.end() && it->second.loading) {
-			it->second.tex = pa.tex;
+		if (it != cache.end() && it->second.loading && pa.tiled.pixels) {
+			C3D_Tex *tex = (C3D_Tex *)malloc(sizeof(C3D_Tex));
+			if (C3D_TexInit(tex, pa.tiled.p2w, pa.tiled.p2h, GPU_RGBA8)) {
+				C3D_TexSetFilter(tex, GPU_LINEAR, GPU_LINEAR);
+				memcpy(tex->data, pa.tiled.pixels, pa.tiled.vramSize);
+				GSPGPU_FlushDataCache(tex->data, pa.tiled.vramSize);
+				it->second.tex = tex;
+			} else {
+				free(tex);
+			}
 			it->second.loading = false;
-		} else if (pa.tex) {
-			C3D_TexDelete(pa.tex);
-			free(pa.tex);
+		}
+
+		if (pa.tiled.pixels) {
+			free(pa.tiled.pixels);
 		}
 	}
 }
@@ -182,13 +191,13 @@ void AvatarCache::prefetchAvatar(const std::string &userId, const std::string &a
 	Network::NetworkManager::getInstance().enqueue(
 	    info.url, "GET", "", Network::RequestPriority::BACKGROUND, [this, userId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    C3D_Tex *tex =
-			        Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(), resp.body.size());
+			    Utils::Image::TiledData tiled =
+			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(), 64, 64);
 
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
 			    PendingAvatar pa;
 			    pa.id = userId;
-			    pa.tex = tex;
+			    pa.tiled = tiled;
 			    this->pendingAvatars.push_back(pa);
 		    } else {
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
@@ -226,13 +235,13 @@ void AvatarCache::prefetchGuildIcon(const std::string &guildId, const std::strin
 	Network::NetworkManager::getInstance().enqueue(
 	    info.url, "GET", "", Network::RequestPriority::BACKGROUND, [this, guildId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    C3D_Tex *tex =
-			        Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(), resp.body.size());
+			    Utils::Image::TiledData tiled =
+			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(), 64, 64);
 
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
 			    PendingAvatar pa;
 			    pa.id = guildId;
-			    pa.tex = tex;
+			    pa.tiled = tiled;
 			    this->pendingAvatars.push_back(pa);
 		    } else {
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
@@ -271,13 +280,13 @@ void AvatarCache::prefetchChannelIcon(const std::string &channelId, const std::s
 	    info.url, "GET", "", Network::RequestPriority::BACKGROUND,
 	    [this, channelId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    C3D_Tex *tex =
-			        Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(), resp.body.size());
+			    Utils::Image::TiledData tiled =
+			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(), 64, 64);
 
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
 			    PendingAvatar pa;
 			    pa.id = channelId;
-			    pa.tex = tex;
+			    pa.tiled = tiled;
 			    this->pendingAvatars.push_back(pa);
 		    } else {
 			    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);

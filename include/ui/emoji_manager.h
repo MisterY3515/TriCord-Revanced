@@ -1,6 +1,4 @@
-#ifndef EMOJI_MANAGER_H
-#define EMOJI_MANAGER_H
-
+#include "utils/image_utils.h"
 #include <citro2d.h>
 #include <deque>
 #include <map>
@@ -60,6 +58,12 @@ class EmojiManager {
 	std::deque<std::string> priorityQueue;
 	std::deque<std::string> backgroundQueue;
 	std::unordered_set<std::string> inQueue;
+
+	struct PendingEmoji {
+		std::string id;
+		Utils::Image::TiledData tiled;
+	};
+	std::vector<PendingEmoji> pendingCustomEmojis;
 
 	std::vector<EmojiCategory> categories;
 	std::vector<std::string> allCodepoints;

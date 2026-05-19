@@ -301,7 +301,7 @@ void VoiceClient::onVoiceStateUpdate(const std::string &sessionId, const std::st
 		this->currentUserId = DiscordClient::getInstance().getCurrentUser().id;
 	} else {
 		// If channelId is empty, it means we left or were kicked
-		if (this->channelId == channelId && !channelId.empty()) {
+		if (!this->channelId.empty()) {
 			leaveChannelLocked(false);
 		}
 	}
