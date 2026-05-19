@@ -22,8 +22,8 @@ AudioManager &AudioManager::getInstance() {
 }
 
 AudioManager::AudioManager() : currentPlayBuf(0), micBuffer(nullptr), micBufSize(0), capturing(false), lastMicPos(0), ndspReady(false) {
-	// Voice playback now runs at 48kHz mono to match Discord's Opus transport clock.
-	playbackBufferSize = (static_cast<size_t>(kVoicePlaybackRate) * kBytesPerMonoSample * kPlaybackBufferMs) / 1000;
+	// Size for ~40ms of 48kHz mono audio (48kHz * 2 bytes * 0.04 = 3840 bytes)
+	playbackBufferSize = 48000 * 2 * 0.04;
 	for (int i = 0; i < NUM_WAVE_BUFS; i++) {
 		playbackBuffer[i] = (int16_t *)linearAlloc(playbackBufferSize);
 		if (playbackBuffer[i]) {
@@ -187,12 +187,12 @@ void AudioManager::startCapture() {
 	if (!micBuffer) return;
 	
 	// sharedMemAudioSize should be at most bufferSize - 4
-	// Use 16360Hz (closest to 16000Hz available on 3DS)
+	// Use 32730Hz (max available on 3DS) to get closer to 48kHz requirements
 	u32 audioSize = micBufSize - 4;
-	MICU_StartSampling(MICU_ENCODING_PCM16_SIGNED, MICU_SAMPLE_RATE_16360, 0, audioSize, true);
+	MICU_StartSampling(MICU_ENCODING_PCM16_SIGNED, MICU_SAMPLE_RATE_32730, 0, audioSize, true);
 	capturing = true;
 	lastMicPos = 0;
-	Logger::log("[Audio] Started MIC capture at 16360Hz");
+	Logger::log("[Audio] Started MIC capture at 32730Hz");
 }
 
 void AudioManager::stopCapture() {

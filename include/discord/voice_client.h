@@ -110,6 +110,7 @@ class VoiceClient {
 
 	// Funzioni di supporto
 	void handleVoiceWsMessage(std::string &msg);
+	void handleVoiceWsBinaryMessage(std::vector<uint8_t> &msg);
 	void tryStartVoiceConnectionLocked();
 	void leaveChannelLocked(bool notifyGateway);
 	void resetConnectionStateLocked();

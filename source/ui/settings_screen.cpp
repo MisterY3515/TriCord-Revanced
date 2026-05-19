@@ -180,6 +180,31 @@ void SettingsScreen::onEnter() {
 	typing.onUpdate = [](int val) { Config::getInstance().setTypingIndicatorEnabled(val == 1); };
 	allItems.push_back(typing);
 
+	// VOICE
+	allItems.push_back({"Voice Chats", "", SettingItemType::SECTION_HEADER});
+
+	SettingItem voiceChats;
+	voiceChats.label = "Enable Voice Chats";
+	voiceChats.description = "Allow the client to connect to voice channels.";
+	voiceChats.type = SettingItemType::TOGGLE;
+	voiceChats.value = Config::getInstance().isVoiceChatsEnabled() ? 1 : 0;
+	voiceChats.min = 0;
+	voiceChats.max = 1;
+	voiceChats.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	voiceChats.onUpdate = [](int val) { Config::getInstance().setVoiceChatsEnabled(val == 1); };
+	allItems.push_back(voiceChats);
+
+	SettingItem daveE2ee;
+	daveE2ee.label = "Enable DAVE/MLS/E2EE";
+	daveE2ee.description = "Experimental: Advertise support for Discord's modern voice E2EE.";
+	daveE2ee.type = SettingItemType::TOGGLE;
+	daveE2ee.value = Config::getInstance().isDaveEnabled() ? 1 : 0;
+	daveE2ee.min = 0;
+	daveE2ee.max = 1;
+	daveE2ee.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	daveE2ee.onUpdate = [](int val) { Config::getInstance().setDaveEnabled(val == 1); };
+	allItems.push_back(daveE2ee);
+
 	// DEVELOPER
 	SettingItem devSection;
 	devSection.label = "Developer Options";

@@ -100,12 +100,20 @@ DiscordClient::~DiscordClient() {
 	}
 	queueCv.notify_all();
 	ws.setOnMessage({});
-	ws.setOnError({});
-	ws.setOnClose({});
+	ws.setOnMessage(nullptr);
+	ws.setOnError(nullptr);
+	ws.setOnClose(nullptr);
 	ws.forceClose();
 	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
 		workerThread.join();
 	}
+	// Disconnect WebSocket OUTSIDE of mutex to unblock network thread's poll()
+	ws.setOnMessage(nullptr);
+	ws.setOnError(nullptr);
+	ws.setOnClose(nullptr);
+	ws.disconnect();
+
+	// Now safe to join — network thread will see DISCONNECTED state and exit
 	if (networkThread.joinable() && networkThread.get_id() != std::this_thread::get_id()) {
 		networkThread.join();
 	}
@@ -1019,8 +1027,19 @@ void DiscordClient::handleSessionsReplace(const rapidjson::Value &d) {
 
 void DiscordClient::handleVoiceStateUpdate(const rapidjson::Value &d) {
 	std::lock_guard<std::recursive_mutex> lock(clientMutex);
-	
+	std::string userId = Utils::Json::getString(d, "user_id");
+	std::string channelId = Utils::Json::getString(d, "channel_id");
+	std::string sessionId = Utils::Json::getString(d, "session_id");
 	std::string guildId = Utils::Json::getString(d, "guild_id");
+
+	if (userId == currentUser.id) {
+		if (channelId.empty()) {
+			VoiceClient::getInstance().leaveChannel();
+		} else {
+			VoiceClient::getInstance().onVoiceStateUpdate(sessionId, guildId, channelId);
+		}
+	}
+	
 	if (guildId.empty()) return;
 	
 	for (auto &guild : guilds) {

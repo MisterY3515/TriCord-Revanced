@@ -23,7 +23,7 @@
 Config::Config()
     : currentAccountIndex(-1), timezoneOffset(0), language("en_US"), themeType(0), typingIndicatorEnabled(true),
       fileLoggingEnabled(false), disclaimerAccepted(false), sslVerificationDisabled(false), showAvatars(true),
-      showServerIcons(true), customThemeEnabled(false), selectedThemeName("") {
+      showServerIcons(true), voiceChatsEnabled(true), daveEnabled(false), customThemeEnabled(false), selectedThemeName("") {
 	customTheme = getDarkPreset();
 	customTheme.name = "Custom Theme";
 }
@@ -237,6 +237,12 @@ void Config::loadSettings() {
 			if (doc.HasMember("show_server_icons") && doc["show_server_icons"].IsBool()) {
 				showServerIcons = doc["show_server_icons"].GetBool();
 			}
+			if (doc.HasMember("voice_chats_enabled") && doc["voice_chats_enabled"].IsBool()) {
+				voiceChatsEnabled = doc["voice_chats_enabled"].GetBool();
+			}
+			if (doc.HasMember("dave_enabled") && doc["dave_enabled"].IsBool()) {
+				daveEnabled = doc["dave_enabled"].GetBool();
+			}
 		} else {
 			saveSettings();
 		}
@@ -277,6 +283,10 @@ void Config::saveSettings() {
 	writer.Bool(showAvatars);
 	writer.Key("show_server_icons");
 	writer.Bool(showServerIcons);
+	writer.Key("voice_chats_enabled");
+	writer.Bool(voiceChatsEnabled);
+	writer.Key("dave_enabled");
+	writer.Bool(daveEnabled);
 	writer.EndObject();
 
 	std::string settingsPath = std::string(CONFIG_DIR_PATH) + "/settings.json";
@@ -286,6 +296,16 @@ void Config::saveSettings() {
 void Config::setFileLoggingEnabled(bool enabled) {
 	fileLoggingEnabled = enabled;
 	Logger::setFileLoggingEnabled(enabled);
+	saveSettings();
+}
+
+void Config::setVoiceChatsEnabled(bool enabled) {
+	voiceChatsEnabled = enabled;
+	saveSettings();
+}
+
+void Config::setDaveEnabled(bool enabled) {
+	daveEnabled = enabled;
 	saveSettings();
 }
 

@@ -3,6 +3,7 @@
 #include "discord/discord_client.h"
 #include "log.h"
 #include "utils/json_utils.h"
+#include "core/config.h"
 #include <3ds.h>
 #include <opus/opus.h>
 #include <rapidjson/document.h>
@@ -17,7 +18,7 @@ namespace Discord {
 
 namespace {
 constexpr int kDiscordSampleRate = 48000;
-constexpr int kMicCaptureRate = 16360;
+constexpr int kMicCaptureRate = 32730;
 constexpr int kDiscordFrameSamples = 960;         // 20ms at 48kHz
 constexpr uint64_t kDiscordFrameDurationMs = 20;
 constexpr int kMaxDecodeFrameSamples = 5760;      // 120ms at 48kHz
@@ -44,6 +45,11 @@ void buildLegacyNonceFromHeader(const uint8_t *header, uint8_t *nonce) {
 bool isSupportedEncryptionMode(const std::string &mode) {
 	return mode == "aead_xchacha20_poly1305_rtpsize" || mode == "aead_aes256_gcm_rtpsize" ||
 	       mode == "xsalsa20_poly1305" || mode == "xsalsa20_poly1305_suffix" || mode == "xsalsa20_poly1305_lite";
+}
+
+bool isDaveRuntimeReady() {
+	// Binary voice frames are now recognized, but MLS/libdave/SFrame are not implemented yet.
+	return false;
 }
 } // namespace
 
@@ -156,6 +162,7 @@ void VoiceClient::leaveChannelLocked(bool notifyGateway) {
 
 	Audio::AudioManager::getInstance().stopCapture();
 	voiceWs.setOnMessage({});
+	voiceWs.setOnBinaryMessage({});
 	voiceWs.setOnError({});
 	voiceWs.setOnClose({});
 	voiceWs.disconnect();
@@ -178,6 +185,7 @@ void VoiceClient::tryStartVoiceConnectionLocked() {
 	}
 
 	voiceWs.setOnMessage([this](std::string &msg) { handleVoiceWsMessage(msg); });
+	voiceWs.setOnBinaryMessage([this](std::vector<uint8_t> &msg) { handleVoiceWsBinaryMessage(msg); });
 	voiceWs.setOnError([this](const std::string &error) {
 		std::lock_guard<std::mutex> lock(voiceMutex);
 		if (shuttingDown) {
@@ -207,6 +215,12 @@ void VoiceClient::tryStartVoiceConnectionLocked() {
 
 void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
 	std::lock_guard<std::mutex> lock(voiceMutex);
+
+	if (!Config::getInstance().isVoiceChatsEnabled()) {
+		Logger::log("[Voice] Voice chats are disabled in settings. Aborting join.");
+		return;
+	}
+
 	if (this->channelId == channelId && state != State::DISCONNECTED) {
 		Logger::log("[Voice] Already in or joining channel %s", channelId.c_str());
 		return;
@@ -294,6 +308,23 @@ void VoiceClient::onVoiceServerUpdate(const std::string &token, const std::strin
 	tryStartVoiceConnectionLocked();
 }
 
+void VoiceClient::handleVoiceWsBinaryMessage(std::vector<uint8_t> &msg) {
+	std::lock_guard<std::mutex> lock(voiceMutex);
+	if (shuttingDown) {
+		return;
+	}
+
+	Logger::log("[Voice] Received binary Voice WebSocket payload (%u bytes)", (unsigned)msg.size());
+	if (!Config::getInstance().isDaveEnabled()) {
+		Logger::log("[Voice] Voice binary payload requires DAVE/MLS/E2EE support, but DAVE is disabled");
+		leaveChannelLocked(true);
+		return;
+	}
+
+	Logger::log("[Voice] DAVE/MLS/E2EE binary payload received, but MLS/libdave processing is not implemented yet");
+	leaveChannelLocked(true);
+}
+
 void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 	std::lock_guard<std::mutex> lock(voiceMutex);
 	if (shuttingDown) {
@@ -326,11 +357,11 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 		ssrc = data["ssrc"].GetUint();
 		selectedEncryptionMode.clear();
 		static const char *kModePreference[] = {
+		    "xsalsa20_poly1305_lite",
+		    "xsalsa20_poly1305_suffix",
+		    "xsalsa20_poly1305",
 		    "aead_xchacha20_poly1305_rtpsize",
 		    "aead_aes256_gcm_rtpsize",
-		    "xsalsa20_poly1305",
-		    "xsalsa20_poly1305_suffix",
-		    "xsalsa20_poly1305_lite",
 		};
 
 		const rapidjson::Value &modes = data["modes"];
@@ -439,17 +470,22 @@ void VoiceClient::sendVoiceIdentify() {
 	rapidjson::Value data(rapidjson::kObjectType);
 	const std::string serverId = guildId.empty() ? channelId : guildId;
 	const std::string currentUserId = DiscordClient::getInstance().getCurrentUser().id;
+	const bool daveRequested = Config::getInstance().isDaveEnabled();
+	const bool daveAdvertised = daveRequested && isDaveRuntimeReady();
 	data.AddMember("server_id", rapidjson::Value(serverId.c_str(), alloc), alloc);
 	data.AddMember("user_id", rapidjson::Value(currentUserId.c_str(), alloc), alloc);
 	data.AddMember("session_id", rapidjson::Value(voiceSessionId.c_str(), alloc), alloc);
 	data.AddMember("token", rapidjson::Value(voiceToken.c_str(), alloc), alloc);
-	data.AddMember("max_dave_protocol_version", 0, alloc);
+	data.AddMember("max_dave_protocol_version", daveAdvertised ? 1 : 0, alloc);
 	d.AddMember("d", data, alloc);
 
 	rapidjson::StringBuffer buffer;
 	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 	d.Accept(writer);
 	voiceWs.send(buffer.GetString());
+	if (daveRequested && !daveAdvertised) {
+		Logger::log("[Voice] DAVE/MLS/E2EE requested in settings, but runtime support is not complete yet; advertising version 0");
+	}
 	Logger::log("[Voice] Sent Identify with voice session_id");
 }
 
@@ -573,7 +609,11 @@ void VoiceClient::processOutgoingAudioLocked() {
 		for (size_t i = 0; i < samplesToDrop; i++) {
 			micAccumulator.pop_front();
 		}
-		Logger::log("[Voice] Dropped %u resampled MIC samples to keep voice latency bounded", (unsigned)samplesToDrop);
+		static uint64_t lastDropLogTime = 0;
+		if (now - lastDropLogTime > 2000) {
+			lastDropLogTime = now;
+			Logger::log("[Voice] Dropped %u resampled MIC samples to keep voice latency bounded", (unsigned)samplesToDrop);
+		}
 	}
 
 	if (nextTransmitTime == 0 || now + 250 < nextTransmitTime) {
