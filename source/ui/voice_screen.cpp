@@ -139,7 +139,7 @@ void VoiceScreen::update() {
 			return;
 		}
 		
-		if (kDown & KEY_Y) { // Changed from X to Y to match bottom bar
+		if (kDown & KEY_X) {
 			Discord::VoiceClient::getInstance().leaveChannel();
 			ScreenManager::getInstance().showToast("Left voice channel");
 			// Non serve returnToPreviousScreen() perché isInChannel() ora è false
@@ -147,7 +147,7 @@ void VoiceScreen::update() {
 			return;
 		}
 
-		if (kDown & KEY_X) { // Changed from Y to X to match bottom bar
+		if (kDown & KEY_Y) {
 			auto &vc = Discord::VoiceClient::getInstance();
 			vc.setMuted(!vc.isMuted());
 			ScreenManager::getInstance().showToast(

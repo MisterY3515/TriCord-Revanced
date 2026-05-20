@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
 	psInit();
 
 	Logger::init();
+
 	Logger::setCrashContext("startup: logger initialized");
 	Logger::log("TriCord - Discord for 3DS starting...");
 	Logger::setCrashContext("startup: load config");
@@ -52,6 +53,7 @@ int main(int argc, char **argv) {
 	UI::ImageManager::getInstance().init();
 	Audio::AudioManager::getInstance().init();
 	Discord::DiscordClient::getInstance().init();
+	Discord::VoiceClient::getInstance().init();
 	UI::ScreenManager::getInstance().init();
 	Logger::setCrashContext("main loop: entering aptMainLoop");
 

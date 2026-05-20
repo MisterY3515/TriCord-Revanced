@@ -209,7 +209,6 @@ void SettingsScreen::onEnter() {
 	SettingItem devSection;
 	devSection.label = "Developer Options";
 	devSection.type = SettingItemType::SECTION_HEADER;
-	devSection.isDeveloper = true;
 	allItems.push_back(devSection);
 
 	SettingItem fileLogging;
@@ -221,7 +220,6 @@ void SettingsScreen::onEnter() {
 	fileLogging.max = 1;
 	fileLogging.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
 	fileLogging.onUpdate = [](int val) { Config::getInstance().setFileLoggingEnabled(val == 1); };
-	fileLogging.isDeveloper = true;
 	allItems.push_back(fileLogging);
 
 	// ADVANCED
@@ -249,7 +247,6 @@ void SettingsScreen::onEnter() {
 	sslVerify.max = 1;
 	sslVerify.valueFormatter = [](int val) { return (val == 0) ? TR("common.disabled") : TR("common.enabled"); };
 	sslVerify.onUpdate = [](int val) { Config::getInstance().setSslVerificationDisabled(val == 0); };
-	sslVerify.isDeveloper = true;
 	allItems.push_back(sslVerify);
 
 	SettingItem chatLogging;
@@ -276,7 +273,6 @@ void SettingsScreen::onEnter() {
 			ScreenManager::getInstance().showToast("Select a channel first!");
 		}
 	};
-	chatLogging.isDeveloper = true;
 	allItems.push_back(chatLogging);
 
 	refreshVisibleItems();
