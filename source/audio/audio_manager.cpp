@@ -24,8 +24,8 @@ AudioManager &AudioManager::getInstance() {
 AudioManager::AudioManager()
     : currentPlayBuf(0), micBuffer(nullptr), micBufSize(0), capturing(false), lastMicPos(0), ndspReady(false),
       micReady(false) {
-	// Size for ~40ms of 48kHz mono audio (48kHz * 2 bytes * 0.04 = 3840 bytes)
-	playbackBufferSize = 48000 * 2 * 0.04;
+	// Size for 120ms of 48kHz mono audio (48000 * 2 * 0.12 = 11520 bytes)
+	playbackBufferSize = 12000;
 	for (int i = 0; i < NUM_WAVE_BUFS; i++) {
 		playbackBuffer[i] = (int16_t *)linearAlloc(playbackBufferSize);
 		if (playbackBuffer[i]) {
@@ -157,9 +157,16 @@ void AudioManager::init() {
 	} else {
 		ndspReady = true;
 		ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+		
+		// Voice playback channel
 		ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
 		ndspChnSetRate(0, kVoicePlaybackRate);
 		ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
+
+		// System sounds channel
+		ndspChnSetInterp(1, NDSP_INTERP_LINEAR);
+		ndspChnSetRate(1, 16000.0f);
+		ndspChnSetFormat(1, NDSP_FORMAT_MONO_PCM16);
 	}
 	
 	// Pre-allocate MIC buffer (linearAlloc required for shared memory)

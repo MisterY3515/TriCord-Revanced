@@ -1,6 +1,4 @@
-#ifndef AVATAR_CACHE_H
-#define AVATAR_CACHE_H
-
+#include "utils/image_utils.h"
 #include <citro2d.h>
 #include <map>
 #include <mutex>
@@ -46,7 +44,7 @@ class AvatarCache {
 
 	struct PendingAvatar {
 		std::string id;
-		C3D_Tex *tex = nullptr;
+		Utils::Image::TiledData tiled;
 	};
 	std::vector<PendingAvatar> pendingAvatars;
 };
