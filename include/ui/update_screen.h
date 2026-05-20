@@ -1,5 +1,5 @@
 #pragma once
-#include "ui/screen.h"
+#include "ui/screen_manager.h"
 #include <string>
 #include <mutex>
 #include <thread>
@@ -11,7 +11,8 @@ public:
 	UpdateScreen(const std::string& downloadUrl, const std::string& assetName);
 	~UpdateScreen();
 
-	void render(bool isTopScreen) override;
+	void renderTop(C3D_RenderTarget *target) override;
+	void renderBottom(C3D_RenderTarget *target) override;
 	void update() override;
 
 private:

@@ -18,6 +18,7 @@
 #include "ui/text_measure_cache.h"
 #include "ui/theme_manager_screen.h"
 #include "ui/voice_screen.h"
+#include "ui/modal_screen.h"
 #include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
 #include <cmath>
@@ -200,6 +201,26 @@ void ScreenManager::returnToPreviousScreen() {
 	screenHistory.pop_back();
 
 	setScreen(prev);
+}
+
+void ScreenManager::pushCustomScreen(std::unique_ptr<Screen> screen) {
+	if (currentScreen) {
+		currentScreen->onExit();
+	}
+	screenHistory.push_back(currentType);
+	currentScreen = std::move(screen);
+	if (currentScreen) {
+		currentScreen->onEnter();
+	}
+}
+
+void ScreenManager::pop() {
+	returnToPreviousScreen();
+}
+
+void ScreenManager::showModal(const std::string& title, const std::string& desc,
+                              const std::vector<std::string>& buttons, std::function<void(int)> onButton) {
+	pushCustomScreen(std::make_unique<ModalScreen>(title, desc, buttons, onButton));
 }
 
 void ScreenManager::update() {
@@ -431,8 +452,8 @@ void ScreenManager::renderConnectionIndicator() {
 	// Full screen error overlay if disconnected/error
 	if (isError) {
 		C2D_DrawRectSolid(0, 0, 0.95f, 320, 240, C2D_Color32(0, 0, 0, 230)); // Dark overlay
-		auto& i18n = I18n::getInstance();
-		std::string errText = i18n.get("updater.error_network"); // "Nessuna Connessione di Rete"
+		auto& i18n = Core::I18n::getInstance();
+		std::string errText = i18n.get("connection.no_network");
 		
 		C2D_TextBuf buf = C2D_TextBufNew(256);
 		C2D_Text text;

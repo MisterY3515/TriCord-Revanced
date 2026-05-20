@@ -103,35 +103,42 @@ static Version parseVersion(const std::string& vstr) {
 	Version v;
 	std::string s = vstr;
 	if (!s.empty() && s[0] == 'v') s = s.substr(1);
-	
-	try {
-		size_t pos = 0;
-		v.major = std::stoi(s, &pos);
-		if (pos < s.length() && s[pos] == '.') {
-			s = s.substr(pos + 1);
-			v.minor = std::stoi(s, &pos);
-			if (pos < s.length() && s[pos] == '.') {
-				s = s.substr(pos + 1);
-				v.patch = std::stoi(s, &pos);
-			}
+	if (s.empty()) return v;
+
+	// Safe parsing without exceptions
+	const char* p = s.c_str();
+	char* end = nullptr;
+
+	v.major = (int)strtol(p, &end, 10);
+	if (end == p) return v; // no digits
+	p = end;
+
+	if (*p == '.') {
+		p++;
+		v.minor = (int)strtol(p, &end, 10);
+		if (end == p) return v;
+		p = end;
+		if (*p == '.') {
+			p++;
+			v.patch = (int)strtol(p, &end, 10);
+			if (end == p) return v;
+			p = end;
 		}
-		
-		if (pos < s.length()) {
-			v.isPreRelease = true;
-			std::string suffix = s.substr(pos);
-			if (!suffix.empty() && suffix[0] == '-') suffix = suffix.substr(1);
-			
-			size_t digitPos = 0;
-			while (digitPos < suffix.length() && !isdigit(suffix[digitPos])) {
-				digitPos++;
-			}
-			v.preReleaseType = suffix.substr(0, digitPos);
-			if (digitPos < suffix.length()) {
-				v.preReleaseNum = std::stoi(suffix.substr(digitPos));
-			}
+	}
+
+	if (*p != '\0') {
+		v.isPreRelease = true;
+		std::string suffix = p;
+		if (!suffix.empty() && suffix[0] == '-') suffix = suffix.substr(1);
+
+		size_t digitPos = 0;
+		while (digitPos < suffix.length() && !isdigit(suffix[digitPos])) {
+			digitPos++;
 		}
-	} catch (...) {
-		// Ignore parsing errors
+		v.preReleaseType = suffix.substr(0, digitPos);
+		if (digitPos < suffix.length()) {
+			v.preReleaseNum = (int)strtol(suffix.c_str() + digitPos, nullptr, 10);
+		}
 	}
 	return v;
 }
@@ -158,7 +165,7 @@ bool Updater::isNewerVersion(const std::string& currentVer, const std::string& r
 }
 
 void Updater::checkForUpdates(bool background) {
-	auto& i18n = I18n::getInstance();
+	auto& i18n = Core::I18n::getInstance();
 	Network::HttpClient client;
 	client.setHeader("User-Agent", "TriCord-Updater/1.0");
 	client.setVerifySSL(false);
@@ -225,7 +232,7 @@ void Updater::checkForUpdates(bool background) {
 			if (background) {
 				// Show a prompt to download
 				std::string title = i18n.get("updater.title");
-				std::string desc = Utils::String::format(i18n.get("updater.desc"), remoteTag);
+				std::string desc = Core::I18n::format(i18n.get("updater.desc"), remoteTag);
 				
 				UI::ScreenManager::getInstance().showModal(title, desc, 
 					{i18n.get("common.cancel"), i18n.get("common.ok")},
@@ -249,7 +256,7 @@ void Updater::checkForUpdates(bool background) {
 }
 
 void Updater::performUpdate(const std::string& downloadUrl, const std::string& assetName) {
-	UI::ScreenManager::getInstance().push(std::make_shared<UI::UpdateScreen>(downloadUrl, assetName));
+	UI::ScreenManager::getInstance().pushCustomScreen(std::make_unique<UI::UpdateScreen>(downloadUrl, assetName));
 }
 
 extern "C" void triggerManualUpdateCheck() {
