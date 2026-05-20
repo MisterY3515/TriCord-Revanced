@@ -53,6 +53,27 @@ bool isDaveRuntimeReady() {
 }
 } // namespace
 
+// Custom randombytes implementation for libsodium on 3DS
+static const char *randombytes_3ds_name(void) {
+	return "3ds";
+}
+static void randombytes_3ds_buf(void *const buf, const size_t size) {
+	PS_GenerateRandomBytes(buf, size);
+}
+static uint32_t randombytes_3ds_random(void) {
+	uint32_t val;
+	PS_GenerateRandomBytes(&val, sizeof(val));
+	return val;
+}
+static struct randombytes_implementation randombytes_3ds_implementation = {
+    randombytes_3ds_name, // implementation_name
+    randombytes_3ds_random, // random
+    NULL, // stir
+    NULL, // uniform
+    randombytes_3ds_buf, // buf
+    NULL, // close
+};
+
 VoiceClient &VoiceClient::getInstance() {
 	static VoiceClient instance;
 	return instance;
@@ -74,9 +95,20 @@ VoiceClient::~VoiceClient() {
 
 void VoiceClient::init() {
 	std::lock_guard<std::mutex> lock(voiceMutex);
+<<<<<<< Updated upstream
 	if (sodium_init() < 0) {
 		Logger::log("[Voice] Failed to initialize libsodium");
 	}
+=======
+<<<<<<< Updated upstream
+	(void)lock;
+=======
+	randombytes_set_implementation(&randombytes_3ds_implementation);
+	if (sodium_init() < 0) {
+		Logger::log("[Voice] Failed to initialize libsodium");
+	}
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 }
 
 bool VoiceClient::initializeCodecsLocked() {
