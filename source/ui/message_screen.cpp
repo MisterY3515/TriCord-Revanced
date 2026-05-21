@@ -359,9 +359,25 @@ void MessageScreen::update() {
 		}
 
 		float reactBtnX = isScrollBtnVisible ? (btnX - btnW - 8.0f) : btnX;
+		float fileBtnX = reactBtnX - btnW - 8.0f;
+		float audioBtnX = fileBtnX - btnW - 8.0f;
+		float camBtnX = audioBtnX - btnW - 8.0f;
+
 		if (touch.px >= reactBtnX && touch.px <= reactBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
 				bottomMode = BottomScreenMode::EMOJI_PICKER;
+			}
+		} else if (touch.px >= fileBtnX && touch.px <= fileBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
+			if (!isMenuOpen && !isLoading) {
+				ScreenManager::getInstance().showToast("File Upload in arrivo");
+			}
+		} else if (touch.px >= audioBtnX && touch.px <= audioBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
+			if (!isMenuOpen && !isLoading) {
+				ScreenManager::getInstance().showToast("Audio Record in arrivo");
+			}
+		} else if (touch.px >= camBtnX && touch.px <= camBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
+			if (!isMenuOpen && !isLoading) {
+				ScreenManager::getInstance().showToast("Camera in arrivo");
 			}
 		}
 	}
@@ -1754,7 +1770,7 @@ void MessageScreen::renderBottom(C3D_RenderTarget *target) {
 		C2D_DrawRectSolid(centerX - 6, centerY + 5, 0.55f, 12, 1.5f, ScreenManager::colorText());
 	}
 
-	renderReactionIcon();
+	renderBottomButtons();
 }
 
 void MessageScreen::fetchOlderMessages() {
@@ -2354,7 +2370,7 @@ float MessageScreen::renderEmbed(const Discord::Embed &embed, float x, float y, 
 
 	return currentY - y;
 }
-void MessageScreen::renderReactionIcon() {
+void MessageScreen::renderBottomButtons() {
 	if (bottomMode == BottomScreenMode::EMOJI_PICKER) {
 		return;
 	}
@@ -2369,19 +2385,34 @@ void MessageScreen::renderReactionIcon() {
 	bool isScrollBtnVisible = (targetScrollY < maxScroll - 10.0f);
 
 	float reactBtnX = isScrollBtnVisible ? (btnX - btnW - 8.0f) : btnX;
+	float fileBtnX = reactBtnX - btnW - 8.0f;
+	float audioBtnX = fileBtnX - btnW - 8.0f;
+	float camBtnX = audioBtnX - btnW - 8.0f;
 
+	// Emoji/Reaction Button
 	drawRoundedRect(reactBtnX, btnY, 0.54f, btnW, btnH, 8.0f, ScreenManager::colorBackgroundLight());
-
-	C3D_Tex *tex = UI::ImageManager::getInstance().getLocalImage("romfs:/discord-icons/reaction.png");
-	if (tex) {
+	C3D_Tex *texReact = UI::ImageManager::getInstance().getLocalImage("romfs:/discord-icons/reaction.png");
+	if (texReact) {
 		float iconSize = 20.0f;
-		Tex3DS_SubTexture subtex = {(u16)tex->width, (u16)tex->height, 0.0f, 1.0f, 1.0f, 0.0f};
-		C2D_Image img = {tex, &subtex};
+		Tex3DS_SubTexture subtex = {(u16)texReact->width, (u16)texReact->height, 0.0f, 1.0f, 1.0f, 0.0f};
+		C2D_Image img = {texReact, &subtex};
 		C2D_ImageTint tint;
 		C2D_PlainImageTint(&tint, ScreenManager::colorText(), 1.0f);
 		C2D_DrawImageAt(img, reactBtnX + (btnW - iconSize) / 2.0f, btnY + (btnH - iconSize) / 2.0f, 0.55f, &tint,
-		                iconSize / tex->width, iconSize / tex->height);
+		                iconSize / texReact->width, iconSize / texReact->height);
 	}
+
+	// File Upload Button
+	drawRoundedRect(fileBtnX, btnY, 0.54f, btnW, btnH, 8.0f, ScreenManager::colorBackgroundLight());
+	drawCenteredRichText(btnY + 5.0f, 0.55f, 0.5f, 0.5f, ScreenManager::colorText(), "\uE074", fileBtnX + (btnW / 2.0f));
+
+	// Audio Record Button
+	drawRoundedRect(audioBtnX, btnY, 0.54f, btnW, btnH, 8.0f, ScreenManager::colorBackgroundLight());
+	drawCenteredRichText(btnY + 5.0f, 0.55f, 0.5f, 0.5f, ScreenManager::colorText(), "\uE034", audioBtnX + (btnW / 2.0f));
+
+	// Camera Button
+	drawRoundedRect(camBtnX, btnY, 0.54f, btnW, btnH, 8.0f, ScreenManager::colorBackgroundLight());
+	drawCenteredRichText(btnY + 5.0f, 0.55f, 0.5f, 0.5f, ScreenManager::colorText(), "\uE070", camBtnX + (btnW / 2.0f));
 }
 
 std::unordered_set<std::string> MessageScreen::getVisibleTwemojis() {
