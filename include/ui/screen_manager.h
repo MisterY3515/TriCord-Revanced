@@ -3,6 +3,7 @@
 
 #include "ui/hamburger_menu.h"
 #include <citro2d.h>
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -54,8 +55,14 @@ class ScreenManager {
 
 	void setScreen(ScreenType type);
 	void pushScreen(ScreenType type);
+	void pushCustomScreen(std::unique_ptr<Screen> screen);
+	
 	ScreenType getCurrentType() const { return currentType; }
 	void returnToPreviousScreen();
+	void pop();
+	
+	void showModal(const std::string& title, const std::string& desc,
+	               const std::vector<std::string>& buttons, std::function<void(int)> onButton);
 	void update();
 	void render();
 	void showToast(const std::string &message);
@@ -160,6 +167,7 @@ class ScreenManager {
 	void renderVoiceOverlay();
 	void drawHamburgerButton();
 	void drawToast();
+	void renderConnectionIndicator();
 
 	std::string toastMessage;
 	int toastTimer = 0;
