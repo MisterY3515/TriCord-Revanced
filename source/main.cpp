@@ -71,8 +71,6 @@ int main(int argc, char **argv) {
 		UI::ScreenManager::getInstance().update();
 		Logger::setCrashContext("main loop: DiscordClient::update");
 		Discord::DiscordClient::getInstance().update();
-		Logger::setCrashContext("main loop: VoiceClient::update");
-		Discord::VoiceClient::getInstance().update();
 
 		if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
 			break;
