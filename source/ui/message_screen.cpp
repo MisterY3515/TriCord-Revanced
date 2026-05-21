@@ -7,6 +7,7 @@
 #include "ui/emoji_manager.h"
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
+#include "ui/file_browser_screen.h"
 #include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
 #include <3ds.h>
@@ -369,7 +370,7 @@ void MessageScreen::update() {
 			}
 		} else if (touch.px >= fileBtnX && touch.px <= fileBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
-				ScreenManager::getInstance().showToast("File Upload in arrivo");
+				ScreenManager::getInstance().pushScreen(new FileBrowserScreen(channelId));
 			}
 		} else if (touch.px >= audioBtnX && touch.px <= audioBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
