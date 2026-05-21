@@ -8,6 +8,7 @@
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
 #include "ui/file_browser_screen.h"
+#include "ui/camera_screen.h"
 #include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
 #include <3ds.h>
@@ -378,7 +379,7 @@ void MessageScreen::update() {
 			}
 		} else if (touch.px >= camBtnX && touch.px <= camBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
-				ScreenManager::getInstance().showToast("Camera in arrivo");
+				ScreenManager::getInstance().pushScreen(new CameraScreen(channelId));
 			}
 		}
 	}
