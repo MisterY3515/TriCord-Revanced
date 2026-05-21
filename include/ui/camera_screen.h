@@ -25,16 +25,9 @@ class CameraScreen : public Screen {
 
 	std::string channelId;
 
-	bool cameraInitialized;
 	bool isCapturing;
 	bool isUploading;
 	bool captureReady;
-
-	static constexpr int CAM_WIDTH = 320;
-	static constexpr int CAM_HEIGHT = 240;
-
-	u16 *camBuffer;
-	u32 camBufferSize;
 
 	C3D_Tex previewTex;
 	bool previewTexReady;

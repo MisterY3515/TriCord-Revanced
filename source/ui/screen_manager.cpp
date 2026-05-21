@@ -414,6 +414,8 @@ void ScreenManager::renderVoiceOverlay() {
 }
 
 void ScreenManager::renderConnectionIndicator() {
+	auto state = Discord::DiscordClient::getInstance().getState();
+	bool isError = (state == Discord::ConnectionState::DISCONNECTED_ERROR);
 	u8 wifiStrength = osGetWifiStrength(); // Returns 0 to 3
 	
 	// Draw connection bars on top-right of bottom screen
