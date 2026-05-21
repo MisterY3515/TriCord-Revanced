@@ -9,6 +9,7 @@
 #include "ui/screen_manager.h"
 #include "ui/file_browser_screen.h"
 #include "ui/camera_screen.h"
+#include "ui/audio_record_screen.h"
 #include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
 #include <3ds.h>
@@ -375,7 +376,7 @@ void MessageScreen::update() {
 			}
 		} else if (touch.px >= audioBtnX && touch.px <= audioBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
-				ScreenManager::getInstance().showToast("Audio Record in arrivo");
+				ScreenManager::getInstance().pushScreen(new AudioRecordScreen(channelId));
 			}
 		} else if (touch.px >= camBtnX && touch.px <= camBtnX + btnW && touch.py >= btnY && touch.py <= btnY + btnH) {
 			if (!isMenuOpen && !isLoading) {
