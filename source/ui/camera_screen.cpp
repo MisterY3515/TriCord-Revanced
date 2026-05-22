@@ -118,10 +118,10 @@ void CameraScreen::renderTop(C3D_RenderTarget *target) {
 
 		C2D_Image img = {&previewTex, &subtex};
 
-		// In 3DSware we capture at 512x256 linear, then mapped to texture
-		// Center on top screen (400x240)
-		float scaleX = 400.0f / 512.0f;
-		float scaleY = 240.0f / 256.0f;
+		// The physical image is 320x240. We want to stretch it to 400x240 (or keep aspect ratio and center it).
+		// Let's stretch it to 400x240.
+		float scaleX = 400.0f / 320.0f;
+		float scaleY = 240.0f / 240.0f;
 		C2D_DrawImageAt(img, 0.0f, 0.0f, 0.5f, nullptr, scaleX, scaleY);
 	} else {
 		drawCenteredText(100.0f, 0.5f, 0.6f, 0.6f, ScreenManager::colorTextMuted(),
