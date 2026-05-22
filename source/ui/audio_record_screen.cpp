@@ -21,7 +21,9 @@ AudioRecordScreen::~AudioRecordScreen() {
 void AudioRecordScreen::onEnter() {
 	if (!Hardware::Mic::getInstance().isReady()) {
 		if (!Hardware::Mic::getInstance().init()) {
-			ScreenManager::getInstance().showToast("Microphone init failed");
+			char errMsg[64];
+			snprintf(errMsg, sizeof(errMsg), "Mic init failed: 0x%08lX", Hardware::Mic::getInstance().getLastError());
+			ScreenManager::getInstance().showToast(errMsg);
 			ScreenManager::getInstance().returnToPreviousScreen();
 		}
 	}

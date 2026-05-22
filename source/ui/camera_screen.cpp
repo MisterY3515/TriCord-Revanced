@@ -5,7 +5,7 @@
 #include <cstring>
 #include <cstdio>
 #include "3dsware/camera.h"
-#include "3dsware/image_export.h"
+#include "utils/image_utils.h"
 #include "3dsware/fs.h"
 
 namespace UI {
@@ -71,14 +71,19 @@ void CameraScreen::update() {
 		return;
 	}
 
+	if (kDown & KEY_R) {
+		Hardware::Camera::getInstance().flipCamera();
+		return;
+	}
+
 	if (kDown & KEY_A) {
 		// Capture and upload
-		std::string tmpPath = "sdmc:/3ds/TriCord/camera_photo.bmp";
+		std::string tmpPath = "sdmc:/3ds/TriCord/camera_photo.jpg";
 		Hardware::FS::ensureDirectory("sdmc:/3ds/TriCord");
 		
 		u16* buffer = Hardware::Camera::getInstance().getInternalBuffer();
 		if (Hardware::Camera::getInstance().isReady() && buffer) {
-			if (Hardware::ImageExport::saveBMP(tmpPath.c_str(), buffer, 320, 240, 320)) {
+			if (Utils::Image::saveJPG(tmpPath.c_str(), buffer, 320, 240)) {
 				deinitCamera();
 				uploadPhoto(tmpPath);
 			} else {
@@ -138,10 +143,10 @@ void CameraScreen::renderBottom(C3D_RenderTarget *target) {
 	                 "Camera", 320.0f);
 
 	drawCenteredText(120.0f, 0.5f, 0.45f, 0.45f, ScreenManager::colorTextMuted(),
-	                 "Point the outer camera and press A", 320.0f);
+	                 "Point the camera and press A", 320.0f);
 
 	drawCenteredText(220.0f, 0.9f, 0.4f, 0.4f, ScreenManager::colorTextMuted(),
-	                 "\uE000: Capture  \uE001: Back", 320.0f);
+	                 "\uE000: Capture  R: Flip  \uE001: Back", 320.0f);
 }
 
 } // namespace UI
