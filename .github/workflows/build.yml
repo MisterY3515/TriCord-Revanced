@@ -19,13 +19,22 @@ jobs:
         with:
           submodules: recursive
 
-
       - name: Install Dependencies
         run: |
           dkp-pacman -Syu --noconfirm 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib 3ds-libopus
-          dkp-pacman -S --noconfirm 3dstools || true
-          dkp-pacman -S --noconfirm general-tools || true
-          dkp-pacman -S --noconfirm bannertool makerom || true
+
+      - name: Install bannertool and makerom
+        run: |
+          # bannertool
+          curl -sSL https://github.com/Steveice10/bannertool/releases/download/1.2.0/bannertool-linux.zip -o /tmp/bannertool.zip
+          unzip -o /tmp/bannertool.zip -d /tmp/bannertool
+          cp /tmp/bannertool/bannertool /usr/local/bin/bannertool
+          chmod +x /usr/local/bin/bannertool
+          # makerom
+          curl -sSL https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip -o /tmp/makerom.zip
+          unzip -o /tmp/makerom.zip -d /tmp/makerom
+          cp /tmp/makerom/makerom /usr/local/bin/makerom
+          chmod +x /usr/local/bin/makerom
 
       - name: Build libsodium
         run: |
@@ -41,3 +50,4 @@ jobs:
           name: TriCord-build
           path: |
             TriCord.3dsx
+            TriCord.cia
