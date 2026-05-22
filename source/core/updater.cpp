@@ -259,7 +259,8 @@ void Updater::performUpdate(const std::string& downloadUrl, const std::string& a
 
 extern "C" void triggerManualUpdateCheck() {
 	// Call on a background thread so we don't block the UI while HTTP completes
-	threadCreate([](void*) {
+	Thread updateThread = threadCreate([](void*) {
 		Updater::getInstance().checkForUpdates(false);
 	}, nullptr, 16 * 1024, 0x1A, -2, false);
+	if (updateThread) threadDetach(updateThread);
 }

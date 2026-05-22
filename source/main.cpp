@@ -58,9 +58,10 @@ int main(int argc, char **argv) {
 	UI::ScreenManager::getInstance().init();
 
 	// Check for updates in the background
-	threadCreate([](void*) {
+	Thread updateThread = threadCreate([](void*) {
 		Updater::getInstance().checkForUpdates(true);
 	}, nullptr, 16 * 1024, 0x1A, -2, false);
+	if (updateThread) threadDetach(updateThread);
 
 	Logger::setCrashContext("main loop: entering aptMainLoop");
 
