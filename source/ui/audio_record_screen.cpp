@@ -19,10 +19,11 @@ AudioRecordScreen::~AudioRecordScreen() {
 }
 
 void AudioRecordScreen::onEnter() {
-	// Hardware::Mic is already initialized by AudioManager
 	if (!Hardware::Mic::getInstance().isReady()) {
-		ScreenManager::getInstance().showToast("Microphone not ready");
-		ScreenManager::getInstance().returnToPreviousScreen();
+		if (!Hardware::Mic::getInstance().init()) {
+			ScreenManager::getInstance().showToast("Microphone init failed");
+			ScreenManager::getInstance().returnToPreviousScreen();
+		}
 	}
 }
 
