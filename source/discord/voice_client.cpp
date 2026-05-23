@@ -740,7 +740,12 @@ void VoiceClient::processIncomingAudioLocked() {
 
 		// PLC: if there's a gap in the sequence, ask Opus to interpolate missing frames
 		if (ss.hasReceivedPacket) {
-			int gap = (int)(uint16_t)(packetSeq - ss.lastSeq - 1);
+			int16_t diff = (int16_t)(packetSeq - ss.lastSeq);
+			if (diff <= 0) {
+				// Out of order or duplicate packet, skip to avoid decoder state corruption
+				continue;
+			}
+			int gap = diff - 1;
 			if (gap > 0 && gap <= 5) {
 				// Generate up to 5 PLC frames to cover the gap
 				for (int i = 0; i < gap; i++) {
