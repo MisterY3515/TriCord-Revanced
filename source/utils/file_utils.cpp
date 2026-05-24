@@ -93,6 +93,8 @@ bool downloadFile(const std::string &url, const std::string &path, std::function
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Disable SSL verification for simplicity on 3DS
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "TriCord-Updater/1.0");
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L); // 2 minutes max for a download to complete/stall
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L); // 15 seconds max to connect
 	if (progressCallback) {
 		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfoCallback);
