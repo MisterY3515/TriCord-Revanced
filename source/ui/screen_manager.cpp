@@ -224,6 +224,19 @@ void ScreenManager::showModal(const std::string& title, const std::string& desc,
 }
 
 void ScreenManager::update() {
+	// Drain deferred tasks from background threads
+	{
+		std::lock_guard<std::mutex> lock(mainThreadTasksMutex);
+		while (!mainThreadTasks.empty()) {
+			auto task = std::move(mainThreadTasks.front());
+			mainThreadTasks.pop_front();
+			// Unlock briefly so tasks can themselves enqueue without deadlock
+			mainThreadTasksMutex.unlock();
+			task();
+			mainThreadTasksMutex.lock();
+		}
+	}
+
 	ImageManager::getInstance().update();
 	EmojiManager::getInstance().update();
 	Discord::AvatarCache::getInstance().update();
@@ -514,6 +527,11 @@ void ScreenManager::drawHamburgerButton() {
 void ScreenManager::showToast(const std::string &message) {
 	toastMessage = message;
 	toastTimer = 120;
+}
+
+void ScreenManager::runOnMainThread(std::function<void()> task) {
+	std::lock_guard<std::mutex> lock(mainThreadTasksMutex);
+	mainThreadTasks.push_back(std::move(task));
 }
 
 bool ScreenManager::isMenuHidden() const {

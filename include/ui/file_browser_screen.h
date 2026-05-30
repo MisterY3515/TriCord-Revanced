@@ -19,8 +19,8 @@ class FileBrowserScreen : public Screen {
 	void loadDirectory(const std::string &path);
 	void uploadSelectedFile();
 
-	std::string currentPath;
 	std::string channelId;
+	std::string currentPath;
 
 	struct FileEntry {
 		std::string name;

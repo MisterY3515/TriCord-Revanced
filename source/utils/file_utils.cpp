@@ -89,12 +89,16 @@ bool downloadFile(const std::string &url, const std::string &path, std::function
 
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeDataCallback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Disable SSL verification for simplicity on 3DS
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "TriCord-Updater/1.0");
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L); // 2 minutes max for a download to complete/stall
-	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L); // 15 seconds max to connect
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 20L); // 20 seconds max to connect
+	// Use low-speed detection instead of a fixed timeout so slow but progressing
+	// downloads on 3DS WiFi are not killed prematurely.
+	curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 100L);  // abort if < 100 bytes/sec
+	curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);    // ... for 30 seconds
 	if (progressCallback) {
 		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfoCallback);

@@ -23,8 +23,13 @@ UpdateScreen::UpdateScreen(const std::string& downloadUrl, const std::string& as
 
 UpdateScreen::~UpdateScreen() {
 	if (updateThread) {
-		threadJoin(updateThread, U64_MAX);
-		threadFree(updateThread);
+		// Wait up to 10 seconds — avoids freezing the app if cURL is stuck
+		Result res = threadJoin(updateThread, 10ULL * 1000 * 1000 * 1000);
+		if (R_SUCCEEDED(res)) {
+			threadFree(updateThread);
+		}
+		// If join timed out, the thread is leaked but the app is not frozen.
+		// The thread will eventually exit when cURL's LOW_SPEED_TIME triggers.
 	}
 }
 

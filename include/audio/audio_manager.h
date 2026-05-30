@@ -3,6 +3,7 @@
 
 #include <3ds.h>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace Audio {
@@ -44,6 +45,9 @@ class AudioManager {
 
 	// MIC capture ora delegato a Hardware::Mic in 3DSware
 	bool ndspReady;
+
+	// Protects playSystemSound from concurrent access (main thread + voice thread)
+	std::mutex systemSoundMutex;
 };
 
 } // namespace Audio

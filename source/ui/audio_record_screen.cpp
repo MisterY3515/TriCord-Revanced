@@ -107,10 +107,15 @@ void AudioRecordScreen::uploadAudio(const std::string &path) {
 	    [this](const Discord::Message &msg, bool success, int errorCode) {
 		    isUploading = false;
 		    if (success) {
-			    ScreenManager::getInstance().showToast("Audio sent!");
-			    ScreenManager::getInstance().returnToPreviousScreen();
+			    ScreenManager::getInstance().runOnMainThread([]() {
+				    ScreenManager::getInstance().showToast("Audio sent!");
+				    ScreenManager::getInstance().returnToPreviousScreen();
+			    });
 		    } else {
-			    ScreenManager::getInstance().showToast("Upload failed: " + std::to_string(errorCode));
+			    std::string errMsg = "Upload failed: " + std::to_string(errorCode);
+			    ScreenManager::getInstance().runOnMainThread([errMsg]() {
+				    ScreenManager::getInstance().showToast(errMsg);
+			    });
 		    }
 	    });
 }

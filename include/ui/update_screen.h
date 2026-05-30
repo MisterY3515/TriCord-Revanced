@@ -19,14 +19,14 @@ private:
 	std::string downloadUrl;
 	std::string assetName;
 	
-	Thread updateThread;
-	std::mutex progressMutex;
-	
 	size_t currentBytes;
 	size_t totalBytes;
 	std::string statusText;
 	bool updateComplete;
 	bool isSuccess;
+
+	Thread updateThread;
+	std::mutex progressMutex;
 
 	void performUpdate();
 };

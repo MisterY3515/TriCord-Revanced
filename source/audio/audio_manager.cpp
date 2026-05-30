@@ -42,6 +42,8 @@ AudioManager::AudioManager()
 void AudioManager::playSystemSound(SystemSound sound) {
 	if (!ndspReady) return;
 
+	std::lock_guard<std::mutex> lock(systemSoundMutex);
+
 	// Buffer statici per evitare leak di linearAlloc
 	static int16_t *joinBuf = nullptr;
 	static int16_t *leaveBuf = nullptr;
