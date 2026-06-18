@@ -10,6 +10,7 @@
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"
+#include "dave_exception_smoketest.h"
 #include <3ds.h>
 #include <citro2d.h>
 #include <citro3d.h>
@@ -40,6 +41,8 @@ int main(int argc, char **argv) {
 
 	Logger::setCrashContext("startup: logger initialized");
 	Logger::log("TriCord - Discord for 3DS starting...");
+	Logger::log("[DAVE] Exceptions/RTTI build override smoke test: %s",
+	            daveExceptionSmokeTest() ? "OK" : "FAILED");
 	Logger::setCrashContext("startup: load config");
 	Config::getInstance().load();
 	Network::NetworkManager::getInstance().init(3, 2);

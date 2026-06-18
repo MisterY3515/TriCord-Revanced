@@ -31,9 +31,15 @@ include $(DEVKITARM)/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	TriCord
 BUILD		:=	build
-SOURCES		:=	source source/core source/network source/audio source/discord source/ui source/ui/forum source/utils library/qrcodegen 3DSware/source
+SOURCES		:=	source source/core source/network source/audio source/discord source/ui source/ui/forum source/utils library/qrcodegen library/mlspp_buildtest 3DSware/source
 DATA		:=	data
-INCLUDES	:=	include include/core include/ui library library/stb_image library/qrcodegen 3DSware/include
+INCLUDES	:=	include include/core include/ui library library/stb_image library/qrcodegen library/mlspp_buildtest 3DSware/include
+
+# Vendored DAVE/MLS dependencies (mlspp, libdave) need -fexceptions -frtti; the rest
+# of TriCord builds with -fno-exceptions -fno-rtti (see CXXFLAGS below). This list is
+# applied as a target-specific variable override further down so only object files
+# compiled from these directories get the vendored flags.
+VENDORED_EXCEPTIONS_SOURCES := library/mlspp_buildtest
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 ROMFS		:=	romfs
@@ -104,6 +110,12 @@ PICAFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
 SHLISTFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
 GFXFILES	:=	$(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.t3s)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+
+# Object files originating from VENDORED_EXCEPTIONS_SOURCES get -fexceptions -frtti
+# applied below (in the recursive build pass) instead of the project-wide
+# -fno-exceptions -fno-rtti.
+VENDORED_EXCEPTIONS_CPPFILES := $(foreach dir,$(VENDORED_EXCEPTIONS_SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+export VENDORED_EXCEPTIONS_OFILES := $(VENDORED_EXCEPTIONS_CPPFILES:.cpp=.o)
 
 #---------------------------------------------------------------------------------
 # use CXX for linking C++ projects, CC for standard C
@@ -228,6 +240,13 @@ VERSION_DEFS += -DAPP_VERSION_PRERELEASE="$(APP_VERSION_PRERELEASE)"
 endif
 CFLAGS += $(VERSION_DEFS)
 CXXFLAGS += $(VERSION_DEFS)
+
+# DAVE/MLS vendored sources (mlspp, libdave) need exceptions/RTTI; everything else in
+# TriCord keeps -fno-exceptions -fno-rtti from CXXFLAGS above. Target-specific
+# variable override applies only to the object files listed here.
+ifneq ($(strip $(VENDORED_EXCEPTIONS_OFILES)),)
+$(VENDORED_EXCEPTIONS_OFILES): CXXFLAGS := $(CFLAGS) -fexceptions -frtti -std=gnu++17 -Wno-psabi
+endif
 
 ifneq ("$(wildcard $(TOPDIR)/$(BANNER_IMAGE).cgfx)","")
 	BANNER_IMAGE_FILE := $(TOPDIR)/$(BANNER_IMAGE).cgfx
