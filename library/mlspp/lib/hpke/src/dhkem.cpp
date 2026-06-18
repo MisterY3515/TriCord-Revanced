@@ -32,47 +32,9 @@ DHKEM::get<KEM::ID::DHKEM_P256_SHA256>()
   return instance;
 }
 
-template<>
-const DHKEM&
-DHKEM::get<KEM::ID::DHKEM_P384_SHA384>()
-{
-  static const auto instance = make_dhkem(KEM::ID::DHKEM_P384_SHA384,
-                                          Group::get<Group::ID::P384>(),
-                                          KDF::get<KDF::ID::HKDF_SHA384>());
-  return instance;
-}
-
-template<>
-const DHKEM&
-DHKEM::get<KEM::ID::DHKEM_P521_SHA512>()
-{
-  static const auto instance = make_dhkem(KEM::ID::DHKEM_P521_SHA512,
-                                          Group::get<Group::ID::P521>(),
-                                          KDF::get<KDF::ID::HKDF_SHA512>());
-  return instance;
-}
-
-template<>
-const DHKEM&
-DHKEM::get<KEM::ID::DHKEM_X25519_SHA256>()
-{
-  static const auto instance = make_dhkem(KEM::ID::DHKEM_X25519_SHA256,
-                                          Group::get<Group::ID::X25519>(),
-                                          KDF::get<KDF::ID::HKDF_SHA256>());
-  return instance;
-}
-
-#if !defined(WITH_BORINGSSL)
-template<>
-const DHKEM&
-DHKEM::get<KEM::ID::DHKEM_X448_SHA512>()
-{
-  static const auto instance = make_dhkem(KEM::ID::DHKEM_X448_SHA512,
-                                          Group::get<Group::ID::X448>(),
-                                          KDF::get<KDF::ID::HKDF_SHA512>());
-  return instance;
-}
-#endif
+// DHKEM_P384_SHA384/P521_SHA512/X25519_SHA256/X448_SHA512 forwarders
+// intentionally not defined here -- see hpke.cpp's comment by
+// KEM::get<DHKEM_P256_SHA256>() for the rationale.
 
 DHKEM::DHKEM(KEM::ID kem_id_in, const Group& group_in, const KDF& kdf_in)
   : KEM(kem_id_in,

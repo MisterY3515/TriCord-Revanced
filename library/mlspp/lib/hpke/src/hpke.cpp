@@ -6,8 +6,9 @@
 #include "common.h"
 #include "dhkem.h"
 #include "hkdf.h"
-#include "hybrid_kem.h"
-#include "mlkem.h"
+// hybrid_kem.h / mlkem.h (post-quantum KEM combinations) intentionally not
+// vendored: DAVE ciphersuite 2 never negotiates PQ KEMs, and the code paths
+// that use them below are already compiled out unless WITH_PQ is defined.
 
 #include <limits>
 #include <stdexcept>
@@ -101,42 +102,18 @@ KEM::KEM(ID id_in,
 {
 }
 
+// Only DHKEM_P256_SHA256 is wired here: DAVE ciphersuite 2 is the only one
+// TriCord's VoiceClient negotiates. The P384/P521/X25519/X448 forwarders
+// upstream defines unconditionally are intentionally removed (not just
+// excluded by config) so referencing them is a link error, not a runtime
+// surprise -- they would otherwise pull in Group::get<P384/...>() symbols
+// this backend never defines.
 template<>
 const KEM&
 KEM::get<KEM::ID::DHKEM_P256_SHA256>()
 {
   return DHKEM::get<KEM::ID::DHKEM_P256_SHA256>();
 }
-
-template<>
-const KEM&
-KEM::get<KEM::ID::DHKEM_P384_SHA384>()
-{
-  return DHKEM::get<KEM::ID::DHKEM_P384_SHA384>();
-}
-
-template<>
-const KEM&
-KEM::get<KEM::ID::DHKEM_P521_SHA512>()
-{
-  return DHKEM::get<KEM::ID::DHKEM_P521_SHA512>();
-}
-
-template<>
-const KEM&
-KEM::get<KEM::ID::DHKEM_X25519_SHA256>()
-{
-  return DHKEM::get<KEM::ID::DHKEM_X25519_SHA256>();
-}
-
-#if !defined(WITH_BORINGSSL)
-template<>
-const KEM&
-KEM::get<KEM::ID::DHKEM_X448_SHA512>()
-{
-  return DHKEM::get<KEM::ID::DHKEM_X448_SHA512>();
-}
-#endif // !defined(WITH_BORINGSSL)
 
 #if defined(WITH_PQ)
 template<>
@@ -216,19 +193,9 @@ KDF::get<KDF::ID::HKDF_SHA256>()
   return HKDF::get<Digest::ID::SHA256>();
 }
 
-template<>
-const KDF&
-KDF::get<KDF::ID::HKDF_SHA384>()
-{
-  return HKDF::get<Digest::ID::SHA384>();
-}
-
-template<>
-const KDF&
-KDF::get<KDF::ID::HKDF_SHA512>()
-{
-  return HKDF::get<Digest::ID::SHA512>();
-}
+// HKDF_SHA384/HKDF_SHA512 forwarders intentionally not defined here -- DAVE
+// ciphersuite 2 only ever uses HKDF_SHA256 (see hpke.cpp's comment by
+// KEM::get<DHKEM_P256_SHA256>() for the rationale).
 
 KDF::KDF(ID id_in, size_t hash_size_in)
   : id(id_in)
@@ -258,25 +225,13 @@ KDF::labeled_expand(const bytes& suite_id,
   return expand(prk, labeled_info, size);
 }
 
+// AES_256_GCM/CHACHA20_POLY1305 forwarders intentionally not defined here --
+// DAVE ciphersuite 2 only ever uses AES_128_GCM.
 template<>
 const AEAD&
 AEAD::get<AEAD::ID::AES_128_GCM>()
 {
   return AEADCipher::get<AEAD::ID::AES_128_GCM>();
-}
-
-template<>
-const AEAD&
-AEAD::get<AEAD::ID::AES_256_GCM>()
-{
-  return AEADCipher::get<AEAD::ID::AES_256_GCM>();
-}
-
-template<>
-const AEAD&
-AEAD::get<AEAD::ID::CHACHA20_POLY1305>()
-{
-  return AEADCipher::get<AEAD::ID::CHACHA20_POLY1305>();
 }
 
 template<>
@@ -391,36 +346,16 @@ suite_id(KEM::ID kem_id, KDF::ID kdf_id, AEAD::ID aead_id)
          i2osp(static_cast<uint64_t>(aead_id), 2);
 }
 
+// select_kem/select_kdf/select_aead only switch over the algorithms this
+// backend actually implements (DAVE ciphersuite 2); every other case falls
+// through to the existing "Unsupported algorithm" throw, matching upstream's
+// behavior for any KEM/KDF/AEAD ID it doesn't recognize either.
 static const KEM&
 select_kem(KEM::ID id)
 {
   switch (id) {
     case KEM::ID::DHKEM_P256_SHA256:
       return KEM::get<KEM::ID::DHKEM_P256_SHA256>();
-    case KEM::ID::DHKEM_P384_SHA384:
-      return KEM::get<KEM::ID::DHKEM_P384_SHA384>();
-    case KEM::ID::DHKEM_P521_SHA512:
-      return KEM::get<KEM::ID::DHKEM_P521_SHA512>();
-    case KEM::ID::DHKEM_X25519_SHA256:
-      return KEM::get<KEM::ID::DHKEM_X25519_SHA256>();
-#if !defined(WITH_BORINGSSL)
-    case KEM::ID::DHKEM_X448_SHA512:
-      return KEM::get<KEM::ID::DHKEM_X448_SHA512>();
-#endif
-#if defined(WITH_PQ)
-    case KEM::ID::MLKEM512:
-      return KEM::get<KEM::ID::MLKEM512>();
-    case KEM::ID::MLKEM768:
-      return KEM::get<KEM::ID::MLKEM768>();
-    case KEM::ID::MLKEM1024:
-      return KEM::get<KEM::ID::MLKEM1024>();
-    case KEM::ID::MLKEM768_P256:
-      return KEM::get<KEM::ID::MLKEM768_P256>();
-    case KEM::ID::MLKEM1024_P384:
-      return KEM::get<KEM::ID::MLKEM1024_P384>();
-    case KEM::ID::MLKEM768_X25519:
-      return KEM::get<KEM::ID::MLKEM768_X25519>();
-#endif
     default:
       throw std::runtime_error("Unsupported algorithm");
   }
@@ -432,10 +367,6 @@ select_kdf(KDF::ID id)
   switch (id) {
     case KDF::ID::HKDF_SHA256:
       return KDF::get<KDF::ID::HKDF_SHA256>();
-    case KDF::ID::HKDF_SHA384:
-      return KDF::get<KDF::ID::HKDF_SHA384>();
-    case KDF::ID::HKDF_SHA512:
-      return KDF::get<KDF::ID::HKDF_SHA512>();
     default:
       throw std::runtime_error("Unsupported algorithm");
   }
@@ -447,10 +378,6 @@ select_aead(AEAD::ID id)
   switch (id) {
     case AEAD::ID::AES_128_GCM:
       return AEAD::get<AEAD::ID::AES_128_GCM>();
-    case AEAD::ID::AES_256_GCM:
-      return AEAD::get<AEAD::ID::AES_256_GCM>();
-    case AEAD::ID::CHACHA20_POLY1305:
-      return AEAD::get<AEAD::ID::CHACHA20_POLY1305>();
     case AEAD::ID::export_only:
       return AEAD::get<AEAD::ID::export_only>();
     default:

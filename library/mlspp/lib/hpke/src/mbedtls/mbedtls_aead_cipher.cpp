@@ -41,12 +41,6 @@ ExportOnlyCipher::ExportOnlyCipher()
 /// AEADCipher (AES-128-GCM only)
 ///
 namespace {
-AEADCipher
-makeAead(AEAD::ID cipher_in)
-{
-  return { cipher_in };
-}
-
 size_t
 cipherKeySize(AEAD::ID cipher)
 {
@@ -72,11 +66,20 @@ cipherNonceSize(AEAD::ID cipher)
 constexpr size_t kTagSize = 16;
 } // namespace
 
+// Must be named exactly make_aead and live directly in this namespace: it is
+// declared `friend AEADCipher make_aead(AEAD::ID cipher_in);` inside
+// AEADCipher in aead_cipher.h, which only grants access to that exact name.
+AEADCipher
+make_aead(AEAD::ID cipher_in)
+{
+  return { cipher_in };
+}
+
 template<>
 const AEADCipher&
 AEADCipher::get<AEAD::ID::AES_128_GCM>()
 {
-  static const auto instance = makeAead(AEAD::ID::AES_128_GCM);
+  static const auto instance = make_aead(AEAD::ID::AES_128_GCM);
   return instance;
 }
 

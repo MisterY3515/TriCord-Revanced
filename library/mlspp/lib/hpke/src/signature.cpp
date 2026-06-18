@@ -124,6 +124,20 @@ private:
 };
 } // namespace
 
+Signature::Signature(Signature::ID id_in)
+  : id(id_in)
+{
+}
+
+// Base-class default for the non-pure-virtual deserialize_private_der
+// declared in signature.h; GroupSignature overrides it, but the vtable still
+// needs this symbol to exist.
+std::unique_ptr<Signature::PrivateKey>
+Signature::deserialize_private_der(const bytes& /* der */) const
+{
+  throw std::runtime_error("DER private key import not implemented");
+}
+
 template<>
 const Signature&
 Signature::get<Signature::ID::P256_SHA256>()

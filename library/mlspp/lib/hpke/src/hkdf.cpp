@@ -1,9 +1,6 @@
 #include "hkdf.h"
-#include "openssl_common.h"
 #include <namespace.h>
 
-#include <openssl/err.h>
-#include <openssl/evp.h>
 #include <stdexcept>
 
 namespace MLS_NAMESPACE::hpke {
@@ -16,21 +13,8 @@ HKDF::get<Digest::ID::SHA256>()
   return instance;
 }
 
-template<>
-const HKDF&
-HKDF::get<Digest::ID::SHA384>()
-{
-  static const HKDF instance(Digest::get<Digest::ID::SHA384>());
-  return instance;
-}
-
-template<>
-const HKDF&
-HKDF::get<Digest::ID::SHA512>()
-{
-  static const HKDF instance(Digest::get<Digest::ID::SHA512>());
-  return instance;
-}
+// HKDF::get<SHA384/SHA512>() intentionally not defined here -- DAVE
+// ciphersuite 2 only ever uses HKDF_SHA256.
 
 static KDF::ID
 digest_to_kdf(Digest::ID digest_id)
