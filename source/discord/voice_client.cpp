@@ -780,6 +780,8 @@ void VoiceClient::sendVoiceIdentify() {
 	rapidjson::StringBuffer buffer;
 	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 	d.Accept(writer);
+	Logger::log("[Voice] Sending Identify: server_id=%s user_id=%s session_id=%s token_len=%d dave=%d",
+	            serverId.c_str(), userId.c_str(), voiceSessionId.c_str(), (int)voiceToken.size(), daveAdvertised ? 1 : 0);
 	voiceWs.send(buffer.GetString());
 	if (daveRequested && !daveAdvertised) {
 		Logger::log("[Voice] DAVE/MLS/E2EE requested in settings, but runtime support is not complete yet; advertising version 0");

@@ -546,6 +546,9 @@ WebSocketClient::ReceiveResult WebSocketClient::receiveFrame(std::string &messag
 		closeCode = 1000;
 		if (payload.size() >= 2) {
 			closeCode = (payload[0] << 8) | payload[1];
+			if (payload.size() > 2) {
+				closeReason.assign(payload.begin() + 2, payload.end());
+			}
 		}
 		return ReceiveResult::CLOSE;
 	}
