@@ -138,6 +138,24 @@ Signature::deserialize_private_der(const bytes& /* der */) const
   throw std::runtime_error("DER private key import not implemented");
 }
 
+// JWK parsing intentionally not implemented: DAVE/MLS Basic credentials never
+// use JWK (see signature.cpp's GroupSignature::import_jwk* throwing stubs
+// above for the per-backend half of this). These are the static, non-virtual
+// generic entry points upstream's full signature.cpp implements with
+// nlohmann::json + per-"kty"/"crv" dispatch; not vendored here to avoid
+// pulling in a JSON dependency for unused functionality.
+Signature::PrivateJWK
+Signature::parse_jwk_private(const std::string& /* jwk_json */)
+{
+  throw std::runtime_error("JWK parsing not implemented (unused by DAVE)");
+}
+
+Signature::PublicJWK
+Signature::parse_jwk(const std::string& /* jwk_json */)
+{
+  throw std::runtime_error("JWK parsing not implemented (unused by DAVE)");
+}
+
 template<>
 const Signature&
 Signature::get<Signature::ID::P256_SHA256>()
