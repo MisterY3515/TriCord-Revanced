@@ -331,12 +331,20 @@ void VoiceClient::tryStartVoiceConnectionLocked() {
 	});
 
 	state = State::CONNECTING_WS;
-	std::string wsUrl = "wss://" + voiceEndpoint + "/?v=4";
+	std::string wsUrl = "wss://" + voiceEndpoint + "/?v=8";
 	Logger::log("[Voice] Connecting to Voice WebSocket: %s", wsUrl.c_str());
 	if (!voiceWs.connect(wsUrl)) {
 		Logger::log("[Voice] Failed to connect voice WebSocket");
 		leaveChannelLocked(true);
+		return;
 	}
+
+	// Per Discord's documented voice protocol, the client sends Identify
+	// immediately upon connecting; the server replies with Ready. Opcode 8
+	// Hello (heartbeat_interval) is not a connection prerequisite -- waiting
+	// for it before sending Identify left both sides waiting on each other,
+	// and the gateway silently dropped the idle connection after ~60s.
+	sendVoiceIdentify();
 }
 
 void VoiceClient::joinChannel(const std::string &guildId, const std::string &channelId) {
@@ -582,10 +590,12 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 
 	switch (op) {
 	case 8: // Hello
+		// Identify is already sent right after the WebSocket connects (see
+		// tryStartVoiceConnectionLocked) -- Hello only carries the heartbeat
+		// interval, it is not a prerequisite for Identify.
 		if (data.HasMember("heartbeat_interval") && data["heartbeat_interval"].IsInt()) {
 			heartbeatInterval = data["heartbeat_interval"].GetInt();
 			lastHeartbeatTime = osGetTime();
-			sendVoiceIdentify();
 		}
 		break;
 	case 2: { // Ready
