@@ -6,6 +6,7 @@
 #include "utils/string_utils.h"
 #include "utils/utf8_utils.h"
 #include <3ds.h>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -14,12 +15,15 @@
 namespace UI {
 namespace MessageUtils {
 
-static int64_t cloudTimeOffset = 0;
+// Written from NetworkManager's worker threads (one per completed HTTP
+// response carrying a Date header) and read from _gettimeofday_r on any
+// thread -- must be atomic, plain int64_t allowed torn reads/writes here.
+static std::atomic<int64_t> cloudTimeOffset{0};
 
 extern "C" int _gettimeofday_r(struct _reent *ptr, struct timeval *tp, void *tzp) {
 	if (tp != NULL) {
 		u64 timecode = osGetTime() - 2208988800000ULL;
-		tp->tv_sec = (timecode / 1000) + cloudTimeOffset;
+		tp->tv_sec = (timecode / 1000) + cloudTimeOffset.load();
 		tp->tv_usec = (timecode % 1000) * 1000;
 	}
 	return 0;
@@ -55,7 +59,14 @@ void syncClock(const std::string &dateStr) {
 
 			serverTime -= local_offset;
 			u64 raw_timecode = osGetTime() - 2208988800000ULL;
-			cloudTimeOffset = serverTime - (raw_timecode / 1000);
+			const int64_t newOffset = serverTime - (raw_timecode / 1000);
+			const int64_t oldOffset = cloudTimeOffset.load();
+			if (newOffset != oldOffset) {
+				Logger::log("[Clock] syncClock: \"%s\" -> offset %lld -> %lld (delta %lld s)",
+				            dateStr.c_str(), (long long)oldOffset, (long long)newOffset,
+				            (long long)(newOffset - oldOffset));
+			}
+			cloudTimeOffset.store(newOffset);
 		}
 	}
 }
