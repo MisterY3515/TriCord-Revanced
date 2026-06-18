@@ -43,6 +43,27 @@ clang++ -std=c++17 -I$MBEDTLS/include $MLSPP/host_tests/hpke_rfc9180_vector_test
 ./hpke_rfc9180_vector_test.exe
 ```
 
+## Running the Phase 2 group lifecycle test
+
+This one links the full vendored mlspp core (TreeKEM, key schedule, messages,
+state), not just the HPKE layer:
+
+```sh
+MLSPP_SRCS="$MLSPP/src/common.cpp $MLSPP/src/core_types.cpp $MLSPP/src/credential.cpp $MLSPP/src/crypto.cpp $MLSPP/src/grease.cpp $MLSPP/src/key_schedule.cpp $MLSPP/src/messages.cpp $MLSPP/src/state.cpp $MLSPP/src/tree_math.cpp $MLSPP/src/treekem.cpp"
+
+clang++ -std=c++17 $INCLUDES $MLSPP/host_tests/mls_group_lifecycle_test.cpp $MLSPP_SRCS $SRCS \
+  $MBEDTLS/hostbuild_obj/libmbedcrypto_host.a -ladvapi32 -o mls_group_lifecycle_test.exe
+./mls_group_lifecycle_test.exe
+```
+
+(`$SRCS` here is the HPKE-layer source list defined above; `$INCLUDES` is the
+same include list too.)
+
+## Phase 3 (libdave) tests
+
+The libdave protocol-glue layer vendored in `library/libdave/` has its own
+host tests and README: `library/libdave/host_tests/README.md`.
+
 (`-ladvapi32` is only needed on Windows, for mbedTLS's entropy source.)
 
 ## Scope note

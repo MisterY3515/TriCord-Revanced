@@ -33,9 +33,9 @@ document is an index, not a replacement for those notices.
 - **License:** MIT
 - **Copyright:** TriCord Contributors
 
-## mlspp (in progress — DAVE/MLS voice encryption)
+## mlspp (DAVE/MLS voice encryption, not yet wired into the 3DS build)
 
-- **Location:** `library/mlspp/` (being vendored as part of DAVE protocol support)
+- **Location:** `library/mlspp/`
 - **Source:** https://github.com/cisco/mlspp
 - **License:** BSD-2-Clause
 - **Copyright:** Cisco Systems, Inc. and contributors
@@ -44,12 +44,15 @@ document is an index, not a replacement for those notices.
   implementation (TriCord-authored, same license terms as the surrounding files)
   since OpenSSL/BoringSSL are not practical to port to devkitARM.
 
-## libdave (in progress — DAVE/MLS voice encryption)
+## libdave (DAVE/MLS voice encryption, not yet wired into the 3DS build)
 
-- **Location:** `library/libdave/` (being vendored as part of DAVE protocol support)
+- **Location:** `library/libdave/`
 - **Source:** https://github.com/discord/libdave
 - **License:** MIT
 - **Copyright:** Discord Inc.
 - **Note:** Only the protocol-glue layer (SFrame-like media framing, per-sender key
-  ratchet, opcode helpers) is vendored; its OpenSSL/BoringSSL-backed AEAD cryptor is
-  replaced with a new mbedTLS-based implementation for the same reason as mlspp above.
+  ratchet, frame processors) is vendored, trimmed to the audio-only/ciphersuite-2
+  subset TriCord needs (see `library/libdave/host_tests/README.md` for the full
+  list of trims); its OpenSSL/BoringSSL-backed AEAD cryptor is replaced with a new
+  mbedTLS-based implementation for the same reason as mlspp above. Other-language
+  bindings (`bindings_capi.cpp`/`bindings_wasm.cpp`) are not vendored.
