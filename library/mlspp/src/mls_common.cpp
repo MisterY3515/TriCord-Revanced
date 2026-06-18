@@ -1,3 +1,6 @@
+// Renamed from upstream's common.cpp (content otherwise unchanged): devkitARM's
+// Makefile compiles every SOURCES directory into one flat object directory, so
+// this would otherwise collide with lib/hpke/src/common.cpp's common.o.
 #include "mls/common.h"
 #include <namespace.h>
 
