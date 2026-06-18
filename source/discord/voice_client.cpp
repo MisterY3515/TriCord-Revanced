@@ -596,6 +596,9 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 		if (data.HasMember("heartbeat_interval") && data["heartbeat_interval"].IsInt()) {
 			heartbeatInterval = data["heartbeat_interval"].GetInt();
 			lastHeartbeatTime = osGetTime();
+			Logger::log("[Voice] Hello received, heartbeat_interval=%d ms", heartbeatInterval);
+		} else {
+			Logger::log("[Voice] Hello received but heartbeat_interval missing/invalid");
 		}
 		break;
 	case 2: { // Ready
@@ -1121,6 +1124,7 @@ void VoiceClient::update() {
 			rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 			d.Accept(writer);
 			voiceWs.send(buffer.GetString());
+			Logger::log("[Voice] Sent Heartbeat (interval=%d)", heartbeatInterval);
 		}
 
 		if (state == State::READY && now - lastUdpKeepaliveTime >= 5000) {
