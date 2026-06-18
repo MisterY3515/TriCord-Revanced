@@ -33,7 +33,7 @@ document is an index, not a replacement for those notices.
 - **License:** MIT
 - **Copyright:** TriCord Contributors
 
-## mlspp (DAVE/MLS voice encryption, not yet wired into the 3DS build)
+## mlspp (DAVE/MLS voice encryption)
 
 - **Location:** `library/mlspp/`
 - **Source:** https://github.com/cisco/mlspp
@@ -44,7 +44,7 @@ document is an index, not a replacement for those notices.
   implementation (TriCord-authored, same license terms as the surrounding files)
   since OpenSSL/BoringSSL are not practical to port to devkitARM.
 
-## libdave (DAVE/MLS voice encryption, not yet wired into the 3DS build)
+## libdave (DAVE/MLS voice encryption)
 
 - **Location:** `library/libdave/`
 - **Source:** https://github.com/discord/libdave
@@ -56,3 +56,8 @@ document is an index, not a replacement for those notices.
   list of trims); its OpenSSL/BoringSSL-backed AEAD cryptor is replaced with a new
   mbedTLS-based implementation for the same reason as mlspp above. Other-language
   bindings (`bindings_capi.cpp`/`bindings_wasm.cpp`) are not vendored.
+- **Integration:** wired into the real devkitARM build and TriCord's `VoiceClient`
+  via `Discord::DaveSession` (`include/discord/dave/`, `source/discord/dave/`);
+  end-to-end voice encryption is active by default
+  (`VoiceClient::isDaveRuntimeReady()` returns `true`). Not yet verified against
+  a live Discord voice call on real 3DS hardware — see `Gestione/DAVE_HANDOFF.md`.
