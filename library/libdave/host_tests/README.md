@@ -19,9 +19,23 @@ mlspp core and its mbedTLS backend (see `library/mlspp/host_tests/README.md`).
   declared "unencrypted ranges" metadata could be used to smuggle ciphertext
   as authenticated plaintext, or vice versa). Confirms no crash/UB and correct
   accept/reject behavior, not just on the curated cases.
+- `dave_epoch_expiry_test.cpp` -- Phase 6 hardening: a *real* wall-clock test
+  of the epoch-transition grace window. `dave_session_lifecycle_test.cpp`
+  above only proves an in-flight old-epoch frame still decrypts milliseconds
+  after a transition; this test passes `TransitionToKeyRatchet()` a short
+  (1s) real expiry and actually `std::this_thread::sleep_for()`s past it,
+  then confirms the old epoch's frames are rejected afterwards while the new
+  epoch keeps working -- exercising the real `std::chrono::steady_clock`-
+  backed `Clock` in `decryptor.h`/`cryptor_manager.h`, no fake/injected clock
+  and no changes to that vendored code.
 
-Both passed when last run (2026-06-18) against mbedTLS 2.28.8 (matching the
-3DS portlib version) built from source with clang on Windows x86_64.
+The first two passed when last run (2026-06-18) against mbedTLS 2.28.8
+(matching the 3DS portlib version) built from source with clang on Windows
+x86_64. `dave_epoch_expiry_test.cpp` was written in a later 2026-06-18
+session but **not yet executed** -- that session's sandbox blocked the
+mbedTLS source download needed to rebuild the host static lib. It follows
+the exact same build recipe as the other two (see below) and should be run
+once before relying on it.
 
 ## Prerequisite: host mbedTLS build
 
@@ -65,6 +79,15 @@ clang++ -std=c++17 -I$LIBDAVE/include -I$LIBDAVE/src \
   $LIBDAVE/src/utils/leb128.cpp $LIBDAVE/src/logger.cpp \
   -o dave_frame_processors_fuzz_test.exe
 ./dave_frame_processors_fuzz_test.exe
+
+# The epoch-expiry test needs the same mlspp+crypto stack as the lifecycle
+# test above (it builds MlsKeyRatchet/Encryptor/Decryptor instances directly)
+# plus pthread for std::this_thread::sleep_for on some platforms.
+clang++ -std=c++17 $INCLUDES $LIBDAVE/host_tests/dave_epoch_expiry_test.cpp \
+  $MLSPP_SRCS $HPKE_SRCS $LIBDAVE_SRCS \
+  $MBEDTLS/hostbuild_obj/libmbedcrypto_host.a -ladvapi32 \
+  -o dave_epoch_expiry_test.exe
+./dave_epoch_expiry_test.exe
 ```
 
 ## What's vendored, what's not, and why
