@@ -3,9 +3,11 @@
 
 #include "ui/hamburger_menu.h"
 #include <citro2d.h>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -66,6 +68,10 @@ class ScreenManager {
 	void update();
 	void render();
 	void showToast(const std::string &message);
+
+	/// Queue a task to be executed on the main thread during the next update().
+	/// Safe to call from any thread.
+	void runOnMainThread(std::function<void()> task);
 
 	bool shouldCloseApplication() const { return appExitRequested; }
 	void requestAppExit() { appExitRequested = true; }
@@ -171,6 +177,9 @@ class ScreenManager {
 
 	std::string toastMessage;
 	int toastTimer = 0;
+
+	std::mutex mainThreadTasksMutex;
+	std::deque<std::function<void()>> mainThreadTasks;
 };
 
 void drawText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &text);

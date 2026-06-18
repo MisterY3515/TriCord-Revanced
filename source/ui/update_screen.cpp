@@ -23,8 +23,13 @@ UpdateScreen::UpdateScreen(const std::string& downloadUrl, const std::string& as
 
 UpdateScreen::~UpdateScreen() {
 	if (updateThread) {
-		threadJoin(updateThread, U64_MAX);
-		threadFree(updateThread);
+		// Wait up to 10 seconds — avoids freezing the app if cURL is stuck
+		Result res = threadJoin(updateThread, 10ULL * 1000 * 1000 * 1000);
+		if (R_SUCCEEDED(res)) {
+			threadFree(updateThread);
+		}
+		// If join timed out, the thread is leaked but the app is not frozen.
+		// The thread will eventually exit when cURL's LOW_SPEED_TIME triggers.
 	}
 }
 
@@ -41,11 +46,22 @@ void UpdateScreen::renderTop(C3D_RenderTarget *target) {
 	
 	float textY = 100.0f;
 	
-	std::lock_guard<std::mutex> lock(progressMutex);
+	std::string currentStatus;
+	size_t current = 0;
+	size_t total = 0;
+	bool complete = false;
+	
+	{
+		std::lock_guard<std::mutex> lock(progressMutex);
+		currentStatus = statusText;
+		current = currentBytes;
+		total = totalBytes;
+		complete = updateComplete;
+	}
 	
 	C2D_TextBuf buf = C2D_TextBufNew(256);
 	C2D_Text text;
-	C2D_TextParse(&text, buf, statusText.c_str());
+	C2D_TextParse(&text, buf, currentStatus.c_str());
 	C2D_TextOptimize(&text);
 	C2D_DrawText(&text, C2D_WithColor | C2D_AlignCenter, 200.0f, textY, 0.5f, 0.5f, 0.5f, C2D_Color32(255, 255, 255, 255));
 	C2D_TextBufDelete(buf);
@@ -53,8 +69,8 @@ void UpdateScreen::renderTop(C3D_RenderTarget *target) {
 	textY += 30.0f;
 	
 	// Draw Progress Bar
-	if (totalBytes > 0 && !updateComplete) {
-		float progress = static_cast<float>(currentBytes) / static_cast<float>(totalBytes);
+	if (total > 0 && !complete) {
+		float progress = static_cast<float>(current) / static_cast<float>(total);
 		
 		// Outline
 		C2D_DrawRectSolid(50, textY, 0, 300, 20, C2D_Color32(100, 100, 100, 255));
@@ -66,8 +82,8 @@ void UpdateScreen::renderTop(C3D_RenderTarget *target) {
 		textY += 30.0f;
 		
 		char dlNow[32], dlTotal[32];
-		snprintf(dlNow, sizeof(dlNow), "%zu KB", currentBytes / 1024);
-		snprintf(dlTotal, sizeof(dlTotal), "%zu KB", totalBytes / 1024);
+		snprintf(dlNow, sizeof(dlNow), "%zu KB", current / 1024);
+		snprintf(dlTotal, sizeof(dlTotal), "%zu KB", total / 1024);
 		std::string progressStr = Core::I18n::format(i18n.get("updater.progress"), dlNow, dlTotal);
 			
 		C2D_TextBuf progBuf = C2D_TextBufNew(256);
@@ -78,7 +94,7 @@ void UpdateScreen::renderTop(C3D_RenderTarget *target) {
 		C2D_TextBufDelete(progBuf);
 	}
 	
-	if (updateComplete) {
+	if (complete) {
 		textY += 30.0f;
 		C2D_TextBuf exitBuf = C2D_TextBufNew(256);
 		C2D_Text exitText;

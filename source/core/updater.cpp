@@ -173,7 +173,10 @@ void Updater::checkForUpdates(bool background) {
 	auto resp = client.get("https://api.github.com/repos/MisterY3515/TriCord-Revanced/releases");
 	if (!resp.success || resp.statusCode >= 400) {
 		if (!background) {
-			UI::ScreenManager::getInstance().showToast(i18n.get("updater.failed_fetch"));
+			std::string msg = i18n.get("updater.failed_fetch");
+			UI::ScreenManager::getInstance().runOnMainThread([msg]() {
+				UI::ScreenManager::getInstance().showToast(msg);
+			});
 		}
 		return;
 	}
@@ -182,7 +185,10 @@ void Updater::checkForUpdates(bool background) {
 	doc.Parse(resp.body.c_str());
 	if (doc.HasParseError() || !doc.IsArray() || doc.Size() == 0) {
 		if (!background) {
-			UI::ScreenManager::getInstance().showToast(i18n.get("updater.failed_parse"));
+			std::string msg = i18n.get("updater.failed_parse");
+			UI::ScreenManager::getInstance().runOnMainThread([msg]() {
+				UI::ScreenManager::getInstance().showToast(msg);
+			});
 		}
 		return;
 	}
@@ -202,7 +208,12 @@ void Updater::checkForUpdates(bool background) {
 
 
 	if (!latestRelease) {
-		if (!background) UI::ScreenManager::getInstance().showToast(i18n.get("updater.no_releases"));
+		if (!background) {
+			std::string msg = i18n.get("updater.no_releases");
+			UI::ScreenManager::getInstance().runOnMainThread([msg]() {
+				UI::ScreenManager::getInstance().showToast(msg);
+			});
+		}
 		return;
 	}
 
@@ -237,19 +248,33 @@ void Updater::checkForUpdates(bool background) {
 			// Show a prompt to download
 			std::string title = i18n.get("updater.title");
 			std::string desc = Core::I18n::format(i18n.get("updater.desc"), remoteTag);
+			std::string cancelStr = i18n.get("common.cancel");
+			std::string okStr = i18n.get("common.ok");
 			
-			UI::ScreenManager::getInstance().showModal(title, desc, 
-				{i18n.get("common.cancel"), i18n.get("common.ok")},
-				[downloadUrl, targetAssetName](int buttonIndex) {
-					if (buttonIndex == 1) { // OK
-						Updater::getInstance().performUpdate(downloadUrl, targetAssetName);
-					}
-				});
+			UI::ScreenManager::getInstance().runOnMainThread([title, desc, cancelStr, okStr, downloadUrl, targetAssetName]() {
+				UI::ScreenManager::getInstance().showModal(title, desc, 
+					{cancelStr, okStr},
+					[downloadUrl, targetAssetName](int buttonIndex) {
+						if (buttonIndex == 1) { // OK
+							Updater::getInstance().performUpdate(downloadUrl, targetAssetName);
+						}
+					});
+			});
 		} else {
-			if (!background) UI::ScreenManager::getInstance().showToast(i18n.get("updater.no_asset"));
+			if (!background) {
+				std::string msg = i18n.get("updater.no_asset");
+				UI::ScreenManager::getInstance().runOnMainThread([msg]() {
+					UI::ScreenManager::getInstance().showToast(msg);
+				});
+			}
 		}
 	} else {
-		if (!background) UI::ScreenManager::getInstance().showToast(i18n.get("updater.up_to_date"));
+		if (!background) {
+			std::string msg = i18n.get("updater.up_to_date");
+			UI::ScreenManager::getInstance().runOnMainThread([msg]() {
+				UI::ScreenManager::getInstance().showToast(msg);
+			});
+		}
 	}
 }
 

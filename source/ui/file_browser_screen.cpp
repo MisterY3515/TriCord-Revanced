@@ -34,7 +34,9 @@ void FileBrowserScreen::loadDirectory(const std::string &path) {
 			std::string name = ent->d_name;
 			if (name == "." || name == "..") continue;
 
-			std::string fullPath = path + "/" + name;
+			std::string fullPath = path;
+			if (fullPath.back() != '/') fullPath += '/';
+			fullPath += name;
 			struct stat st;
 			bool isDir = false;
 			size_t size = 0;
@@ -61,7 +63,6 @@ void FileBrowserScreen::update() {
 	if (isUploading) return;
 
 	u32 kDown = hidKeysDown();
-	u32 kHeld = hidKeysHeld();
 
 	if (kDown & KEY_B) {
 		ScreenManager::getInstance().returnToPreviousScreen();
@@ -122,10 +123,15 @@ void FileBrowserScreen::uploadSelectedFile() {
 	    [this](const Discord::Message &msg, bool success, int errorCode) {
 		    isUploading = false;
 		    if (success) {
-			    ScreenManager::getInstance().showToast("Upload complete!");
-			    ScreenManager::getInstance().returnToPreviousScreen();
+			    ScreenManager::getInstance().runOnMainThread([]() {
+				    ScreenManager::getInstance().showToast("Upload complete!");
+				    ScreenManager::getInstance().returnToPreviousScreen();
+			    });
 		    } else {
-			    ScreenManager::getInstance().showToast("Upload failed: " + std::to_string(errorCode));
+			    std::string errMsg = "Upload failed: " + std::to_string(errorCode);
+			    ScreenManager::getInstance().runOnMainThread([errMsg]() {
+				    ScreenManager::getInstance().showToast(errMsg);
+			    });
 		    }
 	    });
 }

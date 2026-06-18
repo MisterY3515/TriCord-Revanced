@@ -3,6 +3,7 @@
 
 #include <3ds.h>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace Audio {
@@ -18,6 +19,7 @@ class AudioManager {
 
 	// Playback (NDSP) — 48kHz mono per il flusso voice Discord
 	void queuePcm(const int16_t *pcm, size_t samples);
+	void update();
 	
 	// Suoni di sistema
 	void playSystemSound(SystemSound sound);
@@ -44,6 +46,13 @@ class AudioManager {
 
 	// MIC capture ora delegato a Hardware::Mic in 3DSware
 	bool ndspReady;
+
+	// Protects playSystemSound from concurrent access (main thread + voice thread)
+	std::mutex systemSoundMutex;
+
+	std::vector<int16_t> jitterBuffer;
+	std::mutex jitterMutex;
+	bool playingJitter = false;
 };
 
 } // namespace Audio
