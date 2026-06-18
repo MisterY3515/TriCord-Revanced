@@ -1,5 +1,5 @@
 #include "../group.h"
-#include "../common.h"
+#include "../hpke_common.h"
 #include "mbedtls_common.h"
 
 #include <hpke/digest.h>

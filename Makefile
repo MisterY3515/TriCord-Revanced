@@ -31,15 +31,24 @@ include $(DEVKITARM)/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	TriCord
 BUILD		:=	build
-SOURCES		:=	source source/core source/network source/audio source/discord source/ui source/ui/forum source/utils library/qrcodegen library/mlspp_buildtest 3DSware/source
+SOURCES		:=	source source/core source/network source/audio source/discord source/ui source/ui/forum source/utils library/qrcodegen library/mlspp_buildtest 3DSware/source \
+				library/mlspp/src library/mlspp/lib/bytes/src library/mlspp/lib/tls_syntax/src \
+				library/mlspp/lib/hpke/src library/mlspp/lib/hpke/src/mbedtls \
+				library/libdave/src library/libdave/src/mls library/libdave/src/mbedtls library/libdave/src/utils
 DATA		:=	data
-INCLUDES	:=	include include/core include/ui library library/stb_image library/qrcodegen library/mlspp_buildtest 3DSware/include
+INCLUDES	:=	include include/core include/ui library library/stb_image library/qrcodegen library/mlspp_buildtest 3DSware/include \
+				library/mlspp/include library/mlspp/include/mlspp_namespace library/mlspp/lib/bytes/include \
+				library/mlspp/lib/tls_syntax/include library/mlspp/lib/hpke/include library/mlspp/lib/hpke/src \
+				library/libdave/include library/libdave/src
 
 # Vendored DAVE/MLS dependencies (mlspp, libdave) need -fexceptions -frtti; the rest
 # of TriCord builds with -fno-exceptions -fno-rtti (see CXXFLAGS below). This list is
 # applied as a target-specific variable override further down so only object files
 # compiled from these directories get the vendored flags.
-VENDORED_EXCEPTIONS_SOURCES := library/mlspp_buildtest
+VENDORED_EXCEPTIONS_SOURCES := library/mlspp_buildtest \
+				library/mlspp/src library/mlspp/lib/bytes/src library/mlspp/lib/tls_syntax/src \
+				library/mlspp/lib/hpke/src library/mlspp/lib/hpke/src/mbedtls \
+				library/libdave/src library/libdave/src/mls library/libdave/src/mbedtls library/libdave/src/utils
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 ROMFS		:=	romfs

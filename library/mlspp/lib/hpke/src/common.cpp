@@ -1,4 +1,4 @@
-#include "common.h"
+#include "hpke_common.h"
 #include <namespace.h>
 
 namespace MLS_NAMESPACE::hpke {

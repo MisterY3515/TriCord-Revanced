@@ -3,7 +3,7 @@
 #include <namespace.h>
 
 #include "aead_cipher.h"
-#include "common.h"
+#include "hpke_common.h"
 #include "dhkem.h"
 #include "hkdf.h"
 // hybrid_kem.h / mlkem.h (post-quantum KEM combinations) intentionally not
