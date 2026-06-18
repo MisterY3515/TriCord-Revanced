@@ -1,6 +1,7 @@
 #ifndef VOICE_CLIENT_H
 #define VOICE_CLIENT_H
 
+#include "discord/dave/dave_session.h"
 #include "network/udp_client.h"
 #include "network/websocket_client.h"
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -81,6 +83,11 @@ class VoiceClient {
 	std::string currentUserId;
 	uint32_t ssrc;
 
+	// DAVE (MLS end-to-end voice encryption)
+	DaveSession daveSession;
+	std::map<uint32_t, std::string> ssrcToUserId;
+	bool daveActive;
+
 	// Encryption
 	uint8_t secretKey[32];
 
@@ -117,6 +124,8 @@ class VoiceClient {
 	std::deque<int16_t> micAccumulator;
 	std::vector<uint8_t> decodeBuf;
 	std::vector<uint8_t> encodeBuf;
+	std::vector<uint8_t> sframeEncryptBuf;
+	std::vector<uint8_t> sframeDecryptBuf;
 	std::vector<int16_t> pcmBuf;
 	double captureResamplePosition;
 	bool isSpeakingStatus;
@@ -146,6 +155,13 @@ class VoiceClient {
 	void sendVoiceSpeaking(bool speaking);
 	void performIpDiscovery();
 	void sendSelectProtocol(const std::string &ip, int port);
+
+	// DAVE
+	void handleDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload);
+	void sendDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload);
+	void sendDaveTransitionReady(int transitionId);
+	void sendDaveInvalidCommitWelcome(int transitionId);
+	std::set<std::string> buildRecognizedUserIdsLocked() const;
 
 	// Crypto
 	void encryptAudioPacket(const uint8_t *opus, size_t len, std::vector<uint8_t> &out);

@@ -31,7 +31,7 @@ include $(DEVKITARM)/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	TriCord
 BUILD		:=	build
-SOURCES		:=	source source/core source/network source/audio source/discord source/ui source/ui/forum source/utils library/qrcodegen library/mlspp_buildtest 3DSware/source \
+SOURCES		:=	source source/core source/network source/audio source/discord source/discord/dave source/ui source/ui/forum source/utils library/qrcodegen library/mlspp_buildtest 3DSware/source \
 				library/mlspp/src library/mlspp/lib/bytes/src library/mlspp/lib/tls_syntax/src \
 				library/mlspp/lib/hpke/src library/mlspp/lib/hpke/src/mbedtls \
 				library/libdave/src library/libdave/src/mls library/libdave/src/mbedtls library/libdave/src/utils
@@ -44,11 +44,14 @@ INCLUDES	:=	include include/core include/ui library library/stb_image library/qr
 # Vendored DAVE/MLS dependencies (mlspp, libdave) need -fexceptions -frtti; the rest
 # of TriCord builds with -fno-exceptions -fno-rtti (see CXXFLAGS below). This list is
 # applied as a target-specific variable override further down so only object files
-# compiled from these directories get the vendored flags.
+# compiled from these directories get the vendored flags. source/discord/dave is
+# Discord::DaveSession, the sole exception-catching boundary between this tree and
+# the rest of the no-exceptions TriCord codebase (see Gestione/DAVE_HANDOFF.md).
 VENDORED_EXCEPTIONS_SOURCES := library/mlspp_buildtest \
 				library/mlspp/src library/mlspp/lib/bytes/src library/mlspp/lib/tls_syntax/src \
 				library/mlspp/lib/hpke/src library/mlspp/lib/hpke/src/mbedtls \
-				library/libdave/src library/libdave/src/mls library/libdave/src/mbedtls library/libdave/src/utils
+				library/libdave/src library/libdave/src/mls library/libdave/src/mbedtls library/libdave/src/utils \
+				source/discord/dave
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 ROMFS		:=	romfs

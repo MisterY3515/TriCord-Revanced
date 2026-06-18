@@ -48,8 +48,10 @@ bool isSupportedEncryptionMode(const std::string &mode) {
 }
 
 bool isDaveRuntimeReady() {
-	// Binary voice frames are now recognized, but MLS/libdave/SFrame are not implemented yet.
-	return false;
+	// DAVE/MLS/SFrame is wired in (see DaveSession and the opcode 21-31 handling
+	// below) and compiles/links cleanly on real ARM (Phase 4), but has not been
+	// verified against a live Discord voice call on real 3DS hardware yet.
+	return true;
 }
 } // namespace
 
@@ -81,7 +83,7 @@ VoiceClient &VoiceClient::getInstance() {
 
 VoiceClient::VoiceClient()
     : state(State::DISCONNECTED), selectedEncryptionMode("xsalsa20_poly1305"), hasVoiceServerInfo(false),
-      hasVoiceStateInfo(false), ssrc(0), encoder(nullptr), sequence(0), timestamp(0),
+      hasVoiceStateInfo(false), ssrc(0), daveActive(false), encoder(nullptr), sequence(0), timestamp(0),
       transportNonceCounter(0), muted(false), deafened(false), shuttingDown(false), pendingLeave(false),
       pendingLeaveNotifyGateway(false), heartbeatInterval(0), lastHeartbeatTime(0), lastDiscoveryTime(0),
       lastUdpKeepaliveTime(0), nextTransmitTime(0), discoveryRetries(0), lastVoiceGatewaySequence(0),
@@ -235,10 +237,15 @@ void VoiceClient::resetConnectionStateLocked() {
 	lastVoiceGatewaySequence = 0;
 	pendingLeave = false;
 	pendingLeaveNotifyGateway = false;
+	daveSession.reset();
+	ssrcToUserId.clear();
+	daveActive = false;
 	capturePcmAccumulator.clear();
 	micAccumulator.clear();
 	decodeBuf.clear();
 	encodeBuf.clear();
+	sframeEncryptBuf.clear();
+	sframeDecryptBuf.clear();
 	captureResamplePosition = 0.0;
 	isSpeakingStatus = false;
 	silenceFramesToSend = 0;
@@ -445,9 +452,117 @@ void VoiceClient::handleVoiceWsBinaryMessage(std::vector<uint8_t> &msg) {
 		return;
 	}
 
-	Logger::log("[Voice] Received binary Voice WebSocket payload (%u bytes). Ignoring as DAVE/MLS is not fully supported.", (unsigned)msg.size());
-	// We ignore binary payloads completely instead of leaving the channel.
-	// Discord sends these for DAVE/E2EE negotiation, which is not strictly required for standard UDP audio.
+	// Binary voice gateway messages (server->client) are always framed as:
+	// uint16_t sequence_number (big-endian), uint8_t opcode, variable payload.
+	if (msg.size() < 3) {
+		Logger::log("[Voice] Ignoring undersized binary Voice WebSocket payload (%u bytes)", (unsigned)msg.size());
+		return;
+	}
+
+	lastVoiceGatewaySequence = (static_cast<uint16_t>(msg[0]) << 8) | msg[1];
+	const uint8_t opcode = msg[2];
+	std::vector<uint8_t> payload(msg.begin() + 3, msg.end());
+	handleDaveBinaryOpcode(opcode, payload);
+}
+
+std::set<std::string> VoiceClient::buildRecognizedUserIdsLocked() const {
+	std::set<std::string> ids;
+	if (!currentUserId.empty()) {
+		ids.insert(currentUserId);
+	}
+	for (const auto &pair : speakingStates) {
+		ids.insert(pair.first);
+	}
+	for (const auto &pair : ssrcToUserId) {
+		ids.insert(pair.second);
+	}
+	return ids;
+}
+
+void VoiceClient::sendDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload) {
+	std::vector<uint8_t> msg;
+	msg.reserve(1 + payload.size());
+	msg.push_back(opcode);
+	msg.insert(msg.end(), payload.begin(), payload.end());
+	voiceWs.sendBinary(msg);
+}
+
+void VoiceClient::sendDaveTransitionReady(int transitionId) {
+	rapidjson::Document d;
+	d.SetObject();
+	rapidjson::Document::AllocatorType &alloc = d.GetAllocator();
+	d.AddMember("op", 23, alloc);
+	rapidjson::Value data(rapidjson::kObjectType);
+	data.AddMember("transition_id", transitionId, alloc);
+	d.AddMember("d", data, alloc);
+	rapidjson::StringBuffer buffer;
+	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+	d.Accept(writer);
+	voiceWs.send(buffer.GetString());
+}
+
+void VoiceClient::sendDaveInvalidCommitWelcome(int transitionId) {
+	rapidjson::Document d;
+	d.SetObject();
+	rapidjson::Document::AllocatorType &alloc = d.GetAllocator();
+	d.AddMember("op", 31, alloc);
+	rapidjson::Value data(rapidjson::kObjectType);
+	data.AddMember("transition_id", transitionId, alloc);
+	d.AddMember("d", data, alloc);
+	rapidjson::StringBuffer buffer;
+	rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+	d.Accept(writer);
+	voiceWs.send(buffer.GetString());
+	Logger::log("[DAVE] Reported invalid commit/welcome for transition %d", transitionId);
+}
+
+void VoiceClient::handleDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload) {
+	switch (opcode) {
+	case 25: // DAVE MLS External Sender Package
+		if (!daveSession.setExternalSender(payload)) {
+			Logger::log("[DAVE] Failed to set external sender");
+		}
+		break;
+	case 27: { // DAVE MLS Proposals
+		auto commit = daveSession.processProposals(payload, buildRecognizedUserIdsLocked());
+		if (commit.has_value()) {
+			sendDaveBinaryOpcode(28, *commit);
+		}
+		break;
+	}
+	case 29: { // DAVE MLS Announce Commit Transition
+		if (payload.size() < 2) {
+			Logger::log("[DAVE] Announce Commit Transition payload too small");
+			break;
+		}
+		const int transitionId = (static_cast<int>(payload[0]) << 8) | payload[1];
+		std::vector<uint8_t> commitBytes(payload.begin() + 2, payload.end());
+		if (daveSession.processCommit(commitBytes)) {
+			sendDaveTransitionReady(transitionId);
+		} else {
+			sendDaveInvalidCommitWelcome(transitionId);
+		}
+		break;
+	}
+	case 30: { // DAVE MLS Welcome
+		if (payload.size() < 2) {
+			Logger::log("[DAVE] Welcome payload too small");
+			break;
+		}
+		const int transitionId = (static_cast<int>(payload[0]) << 8) | payload[1];
+		std::vector<uint8_t> welcomeBytes(payload.begin() + 2, payload.end());
+		if (daveSession.processWelcome(welcomeBytes, buildRecognizedUserIdsLocked())) {
+			sendDaveTransitionReady(transitionId);
+		} else {
+			sendDaveInvalidCommitWelcome(transitionId);
+		}
+		break;
+	}
+	default:
+		Logger::log("[DAVE] Ignoring unhandled binary opcode %d (%u bytes payload)", (int)opcode,
+		            (unsigned)payload.size());
+		break;
+	}
 }
 
 void VoiceClient::handleVoiceWsMessage(std::string &msg) {
@@ -540,13 +655,17 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 		if (data.HasMember("mode") && data["mode"].IsString()) {
 			selectedEncryptionMode = data["mode"].GetString();
 		}
+		daveActive = false;
 		if (data.HasMember("dave_protocol_version") && data["dave_protocol_version"].IsInt()) {
 			const int daveProtocolVersion = data["dave_protocol_version"].GetInt();
 			if (daveProtocolVersion > 0) {
-				Logger::log("[Voice] DAVE protocol version %d selected by server; this backend does not implement DAVE/MLS/E2EE and cannot join this voice session",
-				            daveProtocolVersion);
-				requestLeaveLocked(true, "server selected DAVE protocol version > 0");
-				return;
+				daveActive = daveSession.init(currentUserId, channelId);
+				if (!daveActive) {
+					Logger::log("[Voice] Failed to initialize DAVE session for protocol version %d", daveProtocolVersion);
+					requestLeaveLocked(true, "failed to initialize DAVE session");
+					return;
+				}
+				Logger::log("[Voice] DAVE protocol version %d selected by server; E2EE active", daveProtocolVersion);
 			}
 		}
 		if (!data.HasMember("secret_key") || !data["secret_key"].IsArray()) {
@@ -575,10 +694,47 @@ void VoiceClient::handleVoiceWsMessage(std::string &msg) {
 	}
 	case 5: // Speaking
 		if (data.HasMember("user_id") && data["user_id"].IsString() && data.HasMember("speaking")) {
-			speakingStates[data["user_id"].GetString()] = data["speaking"].GetInt() != 0;
+			const std::string speakingUserId = data["user_id"].GetString();
+			speakingStates[speakingUserId] = data["speaking"].GetInt() != 0;
+			if (data.HasMember("ssrc") && data["ssrc"].IsUint()) {
+				ssrcToUserId[data["ssrc"].GetUint()] = speakingUserId;
+			}
 		}
 		break;
 	case 6: // Heartbeat ACK
+		break;
+	case 13: // Client Disconnect
+		if (data.HasMember("user_id") && data["user_id"].IsString()) {
+			const std::string disconnectedUserId = data["user_id"].GetString();
+			speakingStates.erase(disconnectedUserId);
+			daveSession.removeDecryptorForUser(disconnectedUserId);
+			for (auto it = ssrcToUserId.begin(); it != ssrcToUserId.end();) {
+				if (it->second == disconnectedUserId) {
+					it = ssrcToUserId.erase(it);
+				} else {
+					++it;
+				}
+			}
+		}
+		break;
+	case 21: // DAVE Protocol Prepare Transition (downgrade)
+		if (data.HasMember("transition_id") && data["transition_id"].IsInt()) {
+			const int transitionId = data["transition_id"].GetInt();
+			daveSession.setPassthroughMode(true);
+			sendDaveTransitionReady(transitionId);
+		}
+		break;
+	case 22: // DAVE Protocol Execute Transition
+		daveSession.executeTransition();
+		break;
+	case 24: // DAVE Protocol Prepare Epoch
+		if (data.HasMember("epoch") && data["epoch"].IsInt() && data["epoch"].GetInt() == 1) {
+			if (daveSession.createOrRecreateGroup()) {
+				sendDaveBinaryOpcode(26, daveSession.getMarshalledKeyPackage());
+			} else {
+				Logger::log("[DAVE] Failed to (re)create MLS group on Prepare Epoch");
+			}
+		}
 		break;
 	default:
 		break;
@@ -731,6 +887,18 @@ void VoiceClient::processIncomingAudioLocked() {
 			continue;
 		}
 
+		if (daveActive) {
+			auto senderIt = ssrcToUserId.find(packetSsrc);
+			if (senderIt == ssrcToUserId.end()) {
+				// Can't decrypt without knowing which user's key ratchet to use.
+				continue;
+			}
+			if (!daveSession.decryptFrame(senderIt->second, decodeBuf, sframeDecryptBuf)) {
+				continue;
+			}
+			decodeBuf.swap(sframeDecryptBuf);
+		}
+
 		// Get or create per-SSRC decoder
 		OpusDecoder *dec = getOrCreateDecoderLocked(packetSsrc);
 		if (!dec) continue;
@@ -851,13 +1019,24 @@ void VoiceClient::processOutgoingAudioLocked() {
 		if (encodedLen == 0) {
 			continue;
 		}
+		opusBuf.resize(encodedLen);
 
 		if (!isSpeakingStatus) {
 			isSpeakingStatus = true;
 			sendVoiceSpeaking(true);
 		}
 
-		encryptAudioPacket(opusBuf.data(), encodedLen, encodeBuf);
+		if (daveActive) {
+			if (!daveSession.encryptFrame(ssrc, opusBuf, sframeEncryptBuf)) {
+				// Fail closed: never transmit plaintext audio when E2EE is supposed to be active.
+				Logger::log("[DAVE] Failed to encrypt outgoing frame; dropping it");
+				nextTransmitTime += kDiscordFrameDurationMs;
+				continue;
+			}
+			encryptAudioPacket(sframeEncryptBuf.data(), sframeEncryptBuf.size(), encodeBuf);
+		} else {
+			encryptAudioPacket(opusBuf.data(), encodedLen, encodeBuf);
+		}
 		if (!encodeBuf.empty()) {
 			udp.send(encodeBuf.data(), encodeBuf.size());
 		}
