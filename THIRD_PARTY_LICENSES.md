@@ -59,5 +59,7 @@ document is an index, not a replacement for those notices.
 - **Integration:** wired into the real devkitARM build and TriCord's `VoiceClient`
   via `Discord::DaveSession` (`include/discord/dave/`, `source/discord/dave/`);
   end-to-end voice encryption is active by default
-  (`VoiceClient::isDaveRuntimeReady()` returns `true`). Not yet verified against
-  a live Discord voice call on real 3DS hardware — see `Gestione/DAVE_HANDOFF.md`.
+  (`VoiceClient::isDaveRuntimeReady()` returns `true`). A first real-hardware
+  voice call test surfaced an unrelated voice-gateway handshake bug (now fixed,
+  see `Gestione/DAVE_HANDOFF.md`); a retest with DAVE actually exchanging audio
+  is still pending.
