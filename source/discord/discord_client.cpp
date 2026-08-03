@@ -10,6 +10,7 @@
 #include "utils/system_utils.h"
 #include "utils/sound_player.h"
 #include <3ds.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <iomanip>
@@ -796,26 +797,22 @@ void DiscordClient::handleReady(const rapidjson::Value &d) {
 
 			if (!sortOrder.empty()) {
 				setStatus("Sorting guilds...");
-				std::vector<Guild> sortedGuilds;
-				std::vector<Guild> remainingGuilds = std::move(newGuilds);
-
-				for (const auto &id : sortOrder) {
-					for (auto it = remainingGuilds.begin(); it != remainingGuilds.end();) {
-						if (it->id == id) {
-							sortedGuilds.push_back(std::move(*it));
-							it = remainingGuilds.erase(it);
-							break;
-						} else {
-							++it;
-						}
-					}
+				// Rank each folder-ordered id and stable-sort once. The old code
+				// scanned + erased the guild vector per sortOrder id (O(n²));
+				// stable_sort keeps non-folder guilds in their original order.
+				std::map<std::string, size_t> rank;
+				for (size_t i = 0; i < sortOrder.size(); ++i) {
+					rank[sortOrder[i]] = i;
 				}
-
-				for (auto &g : remainingGuilds) {
-					sortedGuilds.push_back(std::move(g));
-				}
-
-				newGuilds = std::move(sortedGuilds);
+				const size_t unsortedRank = sortOrder.size();
+				std::stable_sort(newGuilds.begin(), newGuilds.end(),
+				                 [&rank, unsortedRank](const Guild &a, const Guild &b) {
+					                 const auto ia = rank.find(a.id);
+					                 const auto ib = rank.find(b.id);
+					                 const size_t ra = (ia != rank.end()) ? ia->second : unsortedRank;
+					                 const size_t rb = (ib != rank.end()) ? ib->second : unsortedRank;
+					                 return ra < rb;
+				                 });
 				Logger::log("Guilds sorted (local pre-lock).");
 			}
 		}
