@@ -20,10 +20,20 @@
 #include "utils/color_utils.h"
 #include "utils/file_utils.h"
 
+namespace {
+bool defaultEchoCancellation() {
+	bool isNew3DS = false;
+	Result rc = APT_CheckNew3DS(&isNew3DS);
+	Logger::log("[Config] APT_CheckNew3DS rc=0x%08lX new3ds=%d", (unsigned long)rc, isNew3DS ? 1 : 0);
+	return R_SUCCEEDED(rc) && isNew3DS;
+}
+} // namespace
+
 Config::Config()
     : currentAccountIndex(-1), timezoneOffset(0), language("en_US"), themeType(0), typingIndicatorEnabled(true),
-      fileLoggingEnabled(false), disclaimerAccepted(false), sslVerificationDisabled(false), showAvatars(true),
-      showServerIcons(true), voiceChatsEnabled(false), daveEnabled(true), receivePreReleases(false), customThemeEnabled(false), selectedThemeName("") {
+      echoCancellation(true), fileLoggingEnabled(false), disclaimerAccepted(false), sslVerificationDisabled(false),
+      showAvatars(true), showServerIcons(true), showHiddenChannels(false), receivePreReleases(false), customThemeEnabled(false),
+      selectedThemeName("") {
 	customTheme = getDarkPreset();
 	customTheme.name = "Custom Theme";
 }
@@ -196,6 +206,8 @@ void Config::save() {
 }
 
 void Config::loadSettings() {
+	echoCancellation = defaultEchoCancellation();
+
 	std::string settingsPath = std::string(CONFIG_DIR_PATH) + "/settings.json";
 	std::vector<char> buffer = Utils::File::readFile(settingsPath);
 
@@ -215,6 +227,9 @@ void Config::loadSettings() {
 			}
 			if (doc.HasMember("typing_indicator") && doc["typing_indicator"].IsBool()) {
 				typingIndicatorEnabled = doc["typing_indicator"].GetBool();
+			}
+			if (doc.HasMember("echo_cancellation") && doc["echo_cancellation"].IsBool()) {
+				echoCancellation = doc["echo_cancellation"].GetBool();
 			}
 			if (doc.HasMember("file_logging") && doc["file_logging"].IsBool()) {
 				fileLoggingEnabled = doc["file_logging"].GetBool();
@@ -237,11 +252,8 @@ void Config::loadSettings() {
 			if (doc.HasMember("show_server_icons") && doc["show_server_icons"].IsBool()) {
 				showServerIcons = doc["show_server_icons"].GetBool();
 			}
-			if (doc.HasMember("voice_chats_enabled") && doc["voice_chats_enabled"].IsBool()) {
-				voiceChatsEnabled = doc["voice_chats_enabled"].GetBool();
-			}
-			if (doc.HasMember("dave_enabled") && doc["dave_enabled"].IsBool()) {
-				daveEnabled = doc["dave_enabled"].GetBool();
+			if (doc.HasMember("show_hidden_channels") && doc["show_hidden_channels"].IsBool()) {
+				showHiddenChannels = doc["show_hidden_channels"].GetBool();
 			}
 			if (doc.HasMember("receive_prereleases") && doc["receive_prereleases"].IsBool()) {
 				receivePreReleases = doc["receive_prereleases"].GetBool();
@@ -257,6 +269,7 @@ void Config::loadSettings() {
 		Core::I18n::getInstance().loadLanguage("en_US");
 	}
 	Logger::setFileLoggingEnabled(fileLoggingEnabled);
+	Logger::log("[Config] Echo cancellation %s", echoCancellation ? "on" : "off");
 }
 
 void Config::saveSettings() {
@@ -272,6 +285,8 @@ void Config::saveSettings() {
 	writer.String(language.c_str());
 	writer.Key("typing_indicator");
 	writer.Bool(typingIndicatorEnabled);
+	writer.Key("echo_cancellation");
+	writer.Bool(echoCancellation);
 	writer.Key("file_logging");
 	writer.Bool(fileLoggingEnabled);
 	writer.Key("disclaimer_accepted");
@@ -286,10 +301,8 @@ void Config::saveSettings() {
 	writer.Bool(showAvatars);
 	writer.Key("show_server_icons");
 	writer.Bool(showServerIcons);
-	writer.Key("voice_chats_enabled");
-	writer.Bool(voiceChatsEnabled);
-	writer.Key("dave_enabled");
-	writer.Bool(daveEnabled);
+	writer.Key("show_hidden_channels");
+	writer.Bool(showHiddenChannels);
 	writer.Key("receive_prereleases");
 	writer.Bool(receivePreReleases);
 	writer.EndObject();
@@ -301,21 +314,6 @@ void Config::saveSettings() {
 void Config::setFileLoggingEnabled(bool enabled) {
 	fileLoggingEnabled = enabled;
 	Logger::setFileLoggingEnabled(enabled);
-	saveSettings();
-}
-
-void Config::setVoiceChatsEnabled(bool enabled) {
-	voiceChatsEnabled = enabled;
-	saveSettings();
-}
-
-void Config::setDaveEnabled(bool enabled) {
-	daveEnabled = enabled;
-	saveSettings();
-}
-
-void Config::setReceivePreReleases(bool enabled) {
-	receivePreReleases = enabled;
 	saveSettings();
 }
 
@@ -347,6 +345,11 @@ void Config::setTypingIndicatorEnabled(bool enabled) {
 	saveSettings();
 }
 
+void Config::setEchoCancellationEnabled(bool enabled) {
+	echoCancellation = enabled;
+	saveSettings();
+}
+
 void Config::setShowAvatarsEnabled(bool enabled) {
 	showAvatars = enabled;
 	saveSettings();
@@ -354,6 +357,16 @@ void Config::setShowAvatarsEnabled(bool enabled) {
 
 void Config::setShowServerIconsEnabled(bool enabled) {
 	showServerIcons = enabled;
+	saveSettings();
+}
+
+void Config::setShowHiddenChannelsEnabled(bool enabled) {
+	showHiddenChannels = enabled;
+	saveSettings();
+}
+
+void Config::setReceivePreReleases(bool enabled) {
+	receivePreReleases = enabled;
 	saveSettings();
 }
 
@@ -424,7 +437,6 @@ void Config::loadTheme() {
 		loadThemeFromFile(selectedThemeName);
 	}
 }
-
 
 void Config::setCustomThemeEnabled(bool enabled) {
 	customThemeEnabled = enabled;

@@ -1,6 +1,7 @@
 #include "session.h"
 
 #include <cstring>
+#include <thread>
 #include <vector>
 
 #include <dave/logger.h>
@@ -17,8 +18,6 @@
 #include "mls/util.h"
 #include "mls_key_ratchet.h"
 
-// GetPairwiseFingerprint() (and its <thread>/<openssl/evp.h> dependencies) was
-// removed: see the comment on ISession in dave_interfaces.h.
 
 #define TRACK_MLS_ERROR(reason)                      \
     if (onMLSFailureCallback_) {                     \
@@ -726,6 +725,16 @@ std::unique_ptr<IKeyRatchet> Session::GetKeyRatchet(std::string const& userId) c
     // this assumes the MLS ciphersuite produces a kAesGcm128KeyBytes sized key
     // would need to be updated to a different ciphersuite if there's a future mismatch
     return std::make_unique<MlsKeyRatchet>(currentState_->cipher_suite(), std::move(baseSecret));
+}
+
+// The pairwise fingerprint is a display-only verification aid, not part of the
+// protocol. It is derived with scrypt at N=16384, r=8, p=2, which asks for 32MB
+// of scratch memory that the 3DS does not have, so it is not offered.
+void Session::GetPairwiseFingerprint(uint16_t /* version */,
+                                     std::string const& /* userId */,
+                                     PairwiseFingerprintCallback callback) const noexcept
+{
+    callback({});
 }
 
 void Session::ClearPendingState()

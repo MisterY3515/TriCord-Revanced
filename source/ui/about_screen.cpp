@@ -97,7 +97,7 @@ void AboutScreen::renderTop(C3D_RenderTarget *target) {
 
 	drawCenteredRichText(centerY + 30.0f, 0.5f, 0.8f, 0.8f, ScreenManager::colorText(), "TriCord", 400.0f);
 
-	std::string verStr = "Version 0.1.0 (Based on TriCord 0.4.1)";
+	std::string verStr = "Version " + std::string(APP_VERSION) + " (Based on TriCord 0.5.1)";
 	drawCenteredText(centerY + 55.0f, 0.5f, 0.5f, 0.5f, ScreenManager::colorTextMuted(), verStr, 400.0f);
 
 	float lineW = 100.0f;
@@ -133,14 +133,15 @@ void AboutScreen::renderBottom(C3D_RenderTarget *target) {
 	drawSectionTitle("Revanced Credits", true);
 	drawEntry("MisterY3515 (Andrea Alia)", "Revanced Version Developer");
 
-	drawSectionTitle("Original Project Credits", true);
-	drawEntry("2b-zipper", "Original Lead Developer");
+	drawSectionTitle("Credits", true);
+	drawEntry("2b-zipper", "Lead Developer");
 	drawEntry("Str4ky", "French Translation");
 	drawEntry("AverageJohtonian", "Spanish Translation");
 	drawEntry("RossoDev", "Italian Translation");
 	drawEntry("MorrisTheGamer", "German Translation");
 	drawEntry("ReisuErx", "Polish Translation");
 	drawEntry("wiretoscreen", "Brazilian Portuguese Translation");
+	drawEntry("murloc-tinyfin", "Simplified Chinese Translation");
 	drawEntry("Discord Userdoccers", "API Research");
 
 	y += 2.0f;
@@ -153,22 +154,13 @@ void AboutScreen::renderBottom(C3D_RenderTarget *target) {
 		y += 13.0f;
 	};
 	drawLib("libctru, citro3d, citro2d");
-	drawLib("libcurl, mbedtls, RapidJSON");
-	drawLib("stb_image, qrcodegen, zlib");
-	drawLib("libopus, libsodium");
+	drawLib("libcurl, mbedtls, zlib");
+	drawLib("libopus, mlspp, libdave");
+	drawLib("WebRTC AECM");
+	drawLib("RapidJSON, stb_image, qrcodegen");
 	drawLib("Twemoji Assets");
 
-	drawSectionTitle("Voice Compatibility");
-	drawEntry("Transport Voice", "Opus 48kHz + RTP/UDP with legacy/AEAD transport encryption");
-	drawEntry("DAVE / MLS / E2EE", "Not implemented (modern Discord sessions may refuse voice)");
-
 	drawSectionTitle("Source Code");
-	drawText(x + 8.0f, y, 0.5f, 0.36f, 0.36f, ScreenManager::colorTextMuted(), "Licensed under GPL v3.0");
-	y += 13.0f;
-	drawRichText(x + 8.0f, y, 0.5f, 0.36f, 0.36f, ScreenManager::colorLink(),
-	             "https://github.com/MisterY3515/TriCord-Revanced");
-
-	drawSectionTitle("Original TriCord Source Code");
 	drawText(x + 8.0f, y, 0.5f, 0.36f, 0.36f, ScreenManager::colorTextMuted(), "Licensed under GPL v3.0");
 	y += 13.0f;
 	drawRichText(x + 8.0f, y, 0.5f, 0.36f, 0.36f, ScreenManager::colorLink(), "https://github.com/2b-zipper/TriCord");

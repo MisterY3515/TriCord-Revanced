@@ -73,8 +73,12 @@ public:
     virtual std::unique_ptr<IKeyRatchet> GetKeyRatchet(
       std::string const& userId) const noexcept override;
 
-    // GetPairwiseFingerprint() removed: see the comment on ISession in
-    // dave_interfaces.h.
+    using PairwiseFingerprintCallback = std::function<void(std::vector<uint8_t> const&)>;
+
+    virtual void GetPairwiseFingerprint(
+      uint16_t version,
+      std::string const& userId,
+      PairwiseFingerprintCallback callback) const noexcept override;
 
 private:
     void InitLeafNode(std::string const& selfUserId,

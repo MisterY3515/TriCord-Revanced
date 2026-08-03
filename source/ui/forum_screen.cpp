@@ -1,7 +1,9 @@
 #include "ui/forum_screen.h"
 #include "core/i18n.h"
+#include "discord/discord_client.h"
 #include "log.h"
 #include "ui/image_manager.h"
+#include "ui/markdown_renderer.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"
 #include <algorithm>
@@ -13,7 +15,7 @@ static std::set<std::string> forumPendingMemberFetches;
 
 ForumScreen::ForumScreen(const std::string &channelId, const std::string &channelName)
     : channelId(channelId), channelName(channelName), guildId(""), threads({}), activeThreadCount(0), repeatTimer(0),
-      lastKey(0), isLoading(true) {
+      lastKey(0), isLoading(true), aliveToken(std::make_shared<bool>(true)) {
 	auto &sm = ScreenManager::getInstance();
 	selectedIndex = sm.getLastForumIndex(channelId);
 	scrollOffset = sm.getLastForumScroll(channelId);
@@ -21,7 +23,7 @@ ForumScreen::ForumScreen(const std::string &channelId, const std::string &channe
 	truncatedChannelName = getTruncatedRichText(channelName, 380.0f, 0.52f, 0.52f);
 }
 
-ForumScreen::~ForumScreen() {}
+ForumScreen::~ForumScreen() { *aliveToken = false; }
 
 void ForumScreen::onEnter() {
 	Logger::log("Entered Forum Screen: %s", channelName.c_str());
@@ -31,6 +33,7 @@ void ForumScreen::onEnter() {
 	std::lock_guard<std::recursive_mutex> lock(client.getMutex());
 	Discord::Channel channel = client.getChannel(channelId);
 	channelTopic = channel.topic;
+	channelType = channel.type;
 
 	truncatedChannelName = getTruncatedRichText(channelName, 380.0f, 0.52f, 0.52f);
 
@@ -42,7 +45,11 @@ void ForumScreen::onExit() {}
 void ForumScreen::fetchThreads() {
 	isLoading = true;
 	Discord::DiscordClient::getInstance().fetchForumThreads(
-	    channelId, [this](const std::vector<Discord::Channel> &fetchedThreads) {
+	    channelId, [this, token = aliveToken](const std::vector<Discord::Channel> &fetchedThreads) {
+		    if (!*token) {
+			    return;
+		    }
+
 		    std::vector<Discord::Channel> active;
 		    std::vector<Discord::Channel> archived;
 		    for (const auto &t : fetchedThreads) {
@@ -94,6 +101,22 @@ void ForumScreen::update() {
 	u32 kDown = hidKeysDown();
 	u32 kHeld = hidKeysHeld();
 
+	if ((kDown | kHeld) & KEY_TOUCH) {
+		touchPosition touch;
+		hidTouchRead(&touch);
+
+		if (kDown & KEY_TOUCH) {
+			isDraggingBottom = true;
+			lastTouch = touch;
+		} else if (isDraggingBottom) {
+			float dy = touch.py - lastTouch.py;
+			bottomScrollY -= dy;
+			lastTouch = touch;
+		}
+	} else {
+		isDraggingBottom = false;
+	}
+
 	u32 moveDir = 0;
 	if (kDown & KEY_DOWN) {
 		moveDir = KEY_DOWN;
@@ -120,15 +143,6 @@ void ForumScreen::update() {
 			selectedIndex++;
 
 			float fullItemHeight = CARD_HEIGHT + 5.0f;
-			float sepHeight = 25.0f;
-
-			float selectedY = 5.0f;
-			for (int i = 0; i < selectedIndex; ++i) {
-				if (i == activeThreadCount && activeThreadCount > 0 && activeThreadCount < (int)threads.size()) {
-					selectedY += sepHeight;
-				}
-				selectedY += fullItemHeight;
-			}
 
 			int visibleItems = (int)(240.0f / fullItemHeight);
 			if (selectedIndex >= scrollOffset + visibleItems) {
@@ -214,7 +228,7 @@ void ForumScreen::renderBottom(C3D_RenderTarget *target) {
 
 	float headerX = 35.0f;
 
-	std::string iconPath = "romfs:/discord-icons/forum.png";
+	std::string iconPath = channelType == 15 ? "romfs:/discord-icons/forum.png" : "romfs:/discord-icons/thread.png";
 	C3D_Tex *icon = UI::ImageManager::getInstance().getLocalImage(iconPath);
 	if (icon) {
 		float iconSize = 18.0f;
@@ -241,21 +255,23 @@ void ForumScreen::renderBottom(C3D_RenderTarget *target) {
 
 	float topicY = 40.0f;
 
-	drawText(10.0f, topicY, 0.5f, 0.45f, 0.45f, ScreenManager::colorSelection(), TR("forum.topic_label"));
+	auto topicLayout = UI::MarkdownRenderer::get(displayTopic, 300.0f, 0.4f, 13.0f / 0.4f);
+	float contentHeight = 15.0f + UI::MarkdownRenderer::heightOf(*topicLayout, -1);
+	float viewHeight = 240.0f - 40.0f - 25.0f;
+	float maxScroll = std::max(0.0f, contentHeight - viewHeight);
+	bottomScrollY = std::clamp(bottomScrollY, 0.0f, maxScroll);
+	UI::drawScrollbar(maxScroll, bottomScrollY, 40.0f, viewHeight);
+
+	topicY -= bottomScrollY;
+
+	drawText(10.0f, topicY, 0.4f, 0.45f, 0.45f, ScreenManager::colorSelection(), TR("forum.topic_label"));
 	topicY += 15.0f;
 
-	auto lines = MessageUtils::wrapText(displayTopic, 300.0f, 0.4f);
-	int lineCount = 0;
+	UI::MarkdownRenderer::draw(*topicLayout, 10.0f, topicY, 0.4f, ScreenManager::colorText(), -1);
+	topicY += UI::MarkdownRenderer::heightOf(*topicLayout, -1);
 
-	for (const auto &line : lines) {
-		if (lineCount >= 12) {
-			break;
-		}
-
-		drawRichText(10.0f, topicY, 0.5f, 0.4f, 0.4f, ScreenManager::colorText(), line);
-		topicY += 13.0f;
-		lineCount++;
-	}
+	C2D_DrawRectSolid(0, 0, 0.45f, 320, 33, ScreenManager::colorBackgroundDark());
+	C2D_DrawRectSolid(0, 240.0f - 25.0f, 0.45f, 320, 25.0f, ScreenManager::colorBackgroundDark());
 
 	float controlsY = 240.0f - 25.0f;
 

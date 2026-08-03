@@ -1,5 +1,4 @@
 #include "ui/emoji_manager.h"
-#include "core/i18n.h"
 #include "log.h"
 #include "network/network_manager.h"
 #include "utils/image_utils.h"
@@ -10,7 +9,6 @@
 #include <dirent.h>
 #include <fstream>
 #include <malloc.h>
-#include <sstream>
 #include <unordered_set>
 
 namespace UI {
@@ -139,10 +137,39 @@ void EmojiManager::onCategoryChanged(const std::unordered_set<std::string> &keep
 			++it;
 		}
 	}
+
+	freePendingLocked();
+	pendingCv.notify_all();
+
+	if (!backgroundQueue.empty()) {
+		ensureLoaderLocked();
+		loaderCv.notify_one();
+	}
+}
+
+void EmojiManager::freePendingLocked() {
+	for (auto &pending : pendingEmoji) {
+		if (pending.tiled.pixels) {
+			free(pending.tiled.pixels);
+			pending.tiled.pixels = nullptr;
+		}
+	}
+	pendingEmoji.clear();
 }
 
 void EmojiManager::shutdown() {
+	{
+		std::unique_lock<std::shared_mutex> lock(cacheMutex);
+		stopLoader = true;
+	}
+	loaderCv.notify_all();
+	pendingCv.notify_all();
+	loaderThread.join();
+
 	std::unique_lock<std::shared_mutex> lock(cacheMutex);
+	loaderStarted = false;
+	stopLoader = false;
+	freePendingLocked();
 	for (auto &pair : emojiCache) {
 		if (pair.second.tex) {
 			C3D_TexDelete(pair.second.tex);
@@ -165,49 +192,9 @@ void EmojiManager::shutdown() {
 
 EmojiManager::~EmojiManager() { shutdown(); }
 
-void EmojiManager::update() {
-	frameCounter++;
-
-	// Handle pending custom emojis from network threads
-	{
-		std::unique_lock<std::shared_mutex> lock(cacheMutex);
-		while (!pendingCustomEmojis.empty()) {
-			PendingEmoji pe = pendingCustomEmojis.back();
-			pendingCustomEmojis.pop_back();
-
-			auto it = emojiCache.find(pe.id);
-			if (it != emojiCache.end() && it->second.isLoading && pe.tiled.pixels) {
-				C3D_Tex *tex = (C3D_Tex *)malloc(sizeof(C3D_Tex));
-				if (C3D_TexInit(tex, pe.tiled.p2w, pe.tiled.p2h, GPU_RGBA8)) {
-					C3D_TexSetFilter(tex, GPU_LINEAR, GPU_LINEAR);
-					memcpy(tex->data, pe.tiled.pixels, pe.tiled.vramSize);
-					GSPGPU_FlushDataCache(tex->data, pe.tiled.vramSize);
-					it->second.tex = tex;
-					it->second.originalW = pe.tiled.w;
-					it->second.originalH = pe.tiled.h;
-				} else {
-					free(tex);
-				}
-				it->second.isLoading = false;
-				it->second.lastUsedFrame = frameCounter;
-			}
-
-			if (pe.tiled.pixels) {
-				free(pe.tiled.pixels);
-			}
-		}
-	}
-
+void EmojiManager::loaderWorker() {
 	std::unique_lock<std::shared_mutex> lock(cacheMutex);
-	int processed = 0;
-	u64 startTick = svcGetSystemTick();
-	const u64 TICK_LIMIT = 268123 * 3.5;
-
-	while (processed < 30) {
-		if (processed > 0 && (svcGetSystemTick() - startTick) > TICK_LIMIT) {
-			break;
-		}
-
+	while (!stopLoader) {
 		std::string hex;
 		if (!priorityQueue.empty()) {
 			hex = priorityQueue.front();
@@ -216,55 +203,108 @@ void EmojiManager::update() {
 			hex = backgroundQueue.front();
 			backgroundQueue.pop_front();
 		} else {
-			break;
+			loaderCv.wait(lock);
+			continue;
 		}
 
 		inQueue.erase(hex);
 
 		auto it = twemojiCache.find(hex);
-		if (it != twemojiCache.end() && it->second.isLoading) {
-			lock.unlock();
-
-			std::string path = "romfs:/twemoji17/" + hex + ".png";
-			FILE *f = fopen(path.c_str(), "rb");
-			if (!f) {
-				std::string s = hex;
-				size_t p = 0;
-				while ((p = s.find("-fe0f")) != std::string::npos) {
-					s.erase(p, 5);
-				}
-				if (s != hex) {
-					path = "romfs:/twemoji17/" + s + ".png";
-					f = fopen(path.c_str(), "rb");
-				}
-			}
-
-			C3D_Tex *tex = nullptr;
-			int w = 0, h = 0;
-			if (f) {
-				fseek(f, 0, SEEK_END);
-				size_t size = ftell(f);
-				fseek(f, 0, SEEK_SET);
-				std::vector<unsigned char> buffer(size);
-				fread(buffer.data(), 1, size, f);
-				fclose(f);
-				tex = Utils::Image::loadTextureFromMemory(buffer.data(), size, w, h);
-			}
-
-			lock.lock();
-			auto it2 = twemojiCache.find(hex);
-			if (it2 != twemojiCache.end()) {
-				it2->second.tex = tex;
-				it2->second.originalW = w;
-				it2->second.originalH = h;
-				it2->second.isLoading = false;
-				it2->second.lastUsedFrame = frameCounter;
-			} else if (tex) {
-				C3D_TexDelete(tex);
-				free(tex);
-			}
-			processed++;
+		if (it == twemojiCache.end() || !it->second.isLoading) {
+			continue;
 		}
+		lock.unlock();
+
+		std::string path = "romfs:/twemoji17/" + hex + ".png";
+		FILE *f = fopen(path.c_str(), "rb");
+		if (!f) {
+			std::string s = hex;
+			size_t p = 0;
+			while ((p = s.find("-fe0f")) != std::string::npos) {
+				s.erase(p, 5);
+			}
+			if (s != hex) {
+				path = "romfs:/twemoji17/" + s + ".png";
+				f = fopen(path.c_str(), "rb");
+			}
+		}
+
+		Utils::Image::TiledData tiled;
+		if (f) {
+			fseek(f, 0, SEEK_END);
+			size_t size = ftell(f);
+			fseek(f, 0, SEEK_SET);
+			std::vector<unsigned char> buffer(size);
+			fread(buffer.data(), 1, size, f);
+			fclose(f);
+			tiled = Utils::Image::decodeToTiled(buffer.data(), size, TWEMOJI_DECODE_DIM, TWEMOJI_DECODE_DIM);
+		}
+
+		lock.lock();
+		if (stopLoader) {
+			if (tiled.pixels) {
+				free(tiled.pixels);
+			}
+			break;
+		}
+
+		PendingEmoji pending;
+		pending.hex = hex;
+		pending.tiled = tiled;
+		pendingEmoji.push_back(pending);
+
+		pendingCv.wait(lock, [this] { return stopLoader || pendingEmoji.size() < MAX_PENDING_EMOJI; });
+	}
+}
+
+void EmojiManager::ensureLoaderLocked() {
+	if (!loaderStarted) {
+		loaderStarted = true;
+		stopLoader = false;
+		loaderThread.start([this] { loaderWorker(); }, 3, 32 * 1024, true);
+	}
+}
+
+void EmojiManager::update() {
+	std::unique_lock<std::shared_mutex> lock(cacheMutex);
+	frameCounter++;
+	ensureLoaderLocked();
+
+	size_t uploads = 0;
+	while (!pendingEmoji.empty() && uploads < MAX_UPLOADS_PER_FRAME) {
+		PendingEmoji p = pendingEmoji.front();
+		pendingEmoji.pop_front();
+		uploads++;
+
+		C3D_Tex *tex = nullptr;
+		if (p.tiled.pixels) {
+			tex = (C3D_Tex *)malloc(sizeof(C3D_Tex));
+			if (tex && C3D_TexInit(tex, p.tiled.p2w, p.tiled.p2h, GPU_RGBA8)) {
+				C3D_TexSetFilter(tex, GPU_LINEAR, GPU_LINEAR);
+				memcpy(tex->data, p.tiled.pixels, p.tiled.vramSize);
+				GSPGPU_FlushDataCache(tex->data, p.tiled.vramSize);
+			} else {
+				free(tex);
+				tex = nullptr;
+			}
+			free(p.tiled.pixels);
+			p.tiled.pixels = nullptr;
+		}
+
+		auto it = twemojiCache.find(p.hex);
+		if (it != twemojiCache.end()) {
+			it->second.tex = tex;
+			it->second.originalW = p.tiled.w;
+			it->second.originalH = p.tiled.h;
+			it->second.isLoading = false;
+			it->second.lastUsedFrame = frameCounter;
+		} else if (tex) {
+			C3D_TexDelete(tex);
+			free(tex);
+		}
+	}
+	if (uploads > 0) {
+		pendingCv.notify_one();
 	}
 
 	if (twemojiCache.size() > MAX_TWEMOJI_CACHE) {
@@ -290,6 +330,16 @@ void EmojiManager::update() {
 			}
 		}
 	}
+}
+
+size_t EmojiManager::getTwemojiCount() {
+	std::shared_lock<std::shared_mutex> lock(cacheMutex);
+	return twemojiCache.size();
+}
+
+size_t EmojiManager::getCustomCount() {
+	std::shared_lock<std::shared_mutex> lock(cacheMutex);
+	return emojiCache.size();
 }
 
 EmojiManager::EmojiInfo EmojiManager::getEmojiInfo(const std::string &emojiId) {
@@ -320,27 +370,18 @@ void EmojiManager::prefetchEmoji(const std::string &emojiId) {
 	Network::NetworkManager::getInstance().enqueue(
 	    url, "GET", "", Network::RequestPriority::INTERACTIVE, [this, emojiId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    Utils::Image::TiledData tiled =
-			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(), 32, 32);
-
-			    if (tiled.pixels) {
+			    int w, h;
+			    C3D_Tex *tex = Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(),
+			                                                       resp.body.size(), w, h);
+			    if (tex) {
 				    std::unique_lock<std::shared_mutex> lock(cacheMutex);
-				    PendingEmoji pe;
-				    pe.id = emojiId;
-				    pe.tiled = tiled;
-				    pendingCustomEmojis.push_back(pe);
-			    } else {
-				    std::unique_lock<std::shared_mutex> lock(cacheMutex);
-				    auto it = emojiCache.find(emojiId);
-				    if (it != emojiCache.end()) {
-					    it->second.isLoading = false;
-				    }
-			    }
-		    } else {
-			    std::unique_lock<std::shared_mutex> lock(cacheMutex);
-			    auto it = emojiCache.find(emojiId);
-			    if (it != emojiCache.end()) {
-				    it->second.isLoading = false;
+				    EmojiInfo info;
+				    info.tex = tex;
+				    info.originalW = w;
+				    info.originalH = h;
+				    info.lastUsedFrame = frameCounter;
+				    info.isLoading = false;
+				    emojiCache[emojiId] = info;
 			    }
 		    }
 	    });
@@ -376,18 +417,29 @@ void EmojiManager::prefetchEmojisFromText(const std::string &text) {
 }
 
 EmojiManager::EmojiInfo EmojiManager::getTwemojiInfo(const std::string &codepointHex) {
+	{
+		std::shared_lock<std::shared_mutex> lock(cacheMutex);
+		auto it = twemojiCache.find(codepointHex);
+		if (it != twemojiCache.end()) {
+			it->second.lastUsedFrame = frameCounter;
+			if (!it->second.isLoading || inQueue.find(codepointHex) != inQueue.end()) {
+				return it->second;
+			}
+		}
+	}
+
 	std::unique_lock<std::shared_mutex> lock(cacheMutex);
 	auto it = twemojiCache.find(codepointHex);
-
 	if (it != twemojiCache.end()) {
 		it->second.lastUsedFrame = frameCounter;
 		if (!it->second.isLoading) {
 			return it->second;
 		}
-
 		if (inQueue.find(codepointHex) == inQueue.end()) {
 			priorityQueue.push_back(codepointHex);
 			inQueue.insert(codepointHex);
+			ensureLoaderLocked();
+			loaderCv.notify_one();
 		}
 		return it->second;
 	}
@@ -399,6 +451,8 @@ EmojiManager::EmojiInfo EmojiManager::getTwemojiInfo(const std::string &codepoin
 
 	priorityQueue.push_back(codepointHex);
 	inQueue.insert(codepointHex);
+	ensureLoaderLocked();
+	loaderCv.notify_one();
 
 	return pending;
 }

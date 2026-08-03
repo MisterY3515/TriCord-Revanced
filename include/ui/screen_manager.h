@@ -2,6 +2,7 @@
 #define SCREEN_MANAGER_H
 
 #include "ui/hamburger_menu.h"
+#include "ui/incoming_call.h"
 #include <citro2d.h>
 #include <deque>
 #include <functional>
@@ -23,11 +24,9 @@ enum class ScreenType {
 	ADD_ACCOUNT,
 	FORUM_CHANNEL,
 	SETTINGS,
-	DM_LIST,
 	ABOUT,
 	DISCLAIMER,
-	THEME_MANAGER,
-	VOICE_CALL
+	THEME_MANAGER
 };
 
 class Screen {
@@ -58,20 +57,19 @@ class ScreenManager {
 	void setScreen(ScreenType type);
 	void pushScreen(ScreenType type);
 	void pushCustomScreen(std::unique_ptr<Screen> screen);
-	
 	ScreenType getCurrentType() const { return currentType; }
 	void returnToPreviousScreen();
 	void pop();
-	
-	void showModal(const std::string& title, const std::string& desc,
-	               const std::vector<std::string>& buttons, std::function<void(int)> onButton);
-	void update();
-	void render();
-	void showToast(const std::string &message);
+	void showModal(const std::string &title, const std::string &desc, const std::vector<std::string> &buttons,
+	               std::function<void(int)> onButton);
 
 	/// Queue a task to be executed on the main thread during the next update().
 	/// Safe to call from any thread.
 	void runOnMainThread(std::function<void()> task);
+
+	void update();
+	void render();
+	void showToast(const std::string &message);
 
 	bool shouldCloseApplication() const { return appExitRequested; }
 	void requestAppExit() { appExitRequested = true; }
@@ -82,6 +80,9 @@ class ScreenManager {
 	void renderDebugOverlay();
 	bool isDebugOverlayEnabled() const { return debugOverlayEnabled; }
 	void toggleDebugOverlay();
+
+	void renderStatsOverlay();
+	void toggleStatsOverlay();
 
 	HamburgerMenu &getHamburgerMenu() { return hamburgerMenu; }
 
@@ -127,6 +128,10 @@ class ScreenManager {
 	}
 	void setLastChannelScroll(const std::string &guildId, int scroll) { lastChannelScroll[guildId] = scroll; }
 
+	// Separate from the selected channel, which opening a thread overwrites.
+	void setForumChannelId(const std::string &id) { forumChannelId = id; }
+	std::string getForumChannelId() const { return forumChannelId; }
+
 	int getLastForumIndex(const std::string &channelId) {
 		return lastForumIndex.count(channelId) ? lastForumIndex[channelId] : 0;
 	}
@@ -157,29 +162,36 @@ class ScreenManager {
 	std::vector<ScreenType> screenHistory;
 	std::string selectedGuildId;
 	bool debugOverlayEnabled;
+	float debugScrollOffset = 0.0f;
+
+	bool statsOverlayEnabled = false;
+	uint32_t statsFrames = 0;
+	uint64_t statsWindowStart = 0;
+	float statsFps = 0.0f;
+	float statsFrameMs = 0.0f;
 	bool appExitRequested;
 	HamburgerMenu hamburgerMenu;
+	IncomingCall incomingCall;
 	C2D_ImageTint tint;
 
 	int lastServerIndex = 0;
 	int lastServerScroll = 0;
 	std::map<std::string, int> lastChannelIndex;
 	std::map<std::string, int> lastChannelScroll;
+	std::string forumChannelId;
 	std::map<std::string, int> lastForumIndex;
 	std::map<std::string, int> lastForumScroll;
 
 	std::set<std::string> expandedFolders;
 
-	void renderVoiceOverlay();
 	void drawHamburgerButton();
 	void drawToast();
-	void renderConnectionIndicator();
 
 	std::string toastMessage;
 	int toastTimer = 0;
 
-	std::mutex mainThreadTasksMutex;
 	std::deque<std::function<void()>> mainThreadTasks;
+	std::mutex mainThreadTasksMutex;
 };
 
 void drawText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &text);
@@ -189,6 +201,7 @@ float measureText(const std::string &text, float scaleX, float scaleY);
 float measureTextDirect(const std::string &text, float scaleX, float scaleY);
 void drawRoundedRect(float x, float y, float z, float w, float h, float radius, u32 color);
 void drawCircle(float x, float y, float z, float radius, u32 color);
+void drawScrollbar(float maxScroll, float currentScroll, float y, float viewHeight);
 void drawRichText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &rawText);
 void drawCenteredRichText(float y, float z, float scaleX, float scaleY, u32 color, const std::string &rawText,
                           float screenWidth);

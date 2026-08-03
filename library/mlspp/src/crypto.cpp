@@ -72,17 +72,21 @@ CipherSuite::signature_scheme() const
   }
 }
 
-// Only P256_AES128GCM_SHA256_P256 (DAVE ciphersuite 2) is constructed here.
-// Upstream builds every supported suite's Ciphers struct as a sequence of
-// unconditional `static const` locals reached on every call regardless of
-// which `id` is requested -- with the trimmed mbedTLS backend (only
-// DHKEM_P256_SHA256/HKDF_SHA256/AES_128_GCM/SHA256/P256_SHA256 defined),
-// constructing any of the other suites' HPKE/Digest/Signature objects would
-// throw, so those static locals are removed entirely rather than narrowed to
-// the switch below.
 const CipherSuite::Ciphers&
 CipherSuite::get() const
 {
+#if !defined(WITH_MBEDTLS)
+  static const auto ciphers_X25519_AES128GCM_SHA256_Ed25519 =
+    CipherSuite::Ciphers{
+      HPKE(KEM::ID::DHKEM_X25519_SHA256,
+           KDF::ID::HKDF_SHA256,
+           AEAD::ID::AES_128_GCM),
+      Digest::get<Digest::ID::SHA256>(),
+      Signature::get<Signature::ID::Ed25519>(),
+    };
+
+#endif // !defined(WITH_MBEDTLS)
+
   static const auto ciphers_P256_AES128GCM_SHA256_P256 = CipherSuite::Ciphers{
     HPKE(
       KEM::ID::DHKEM_P256_SHA256, KDF::ID::HKDF_SHA256, AEAD::ID::AES_128_GCM),
@@ -90,12 +94,115 @@ CipherSuite::get() const
     Signature::get<Signature::ID::P256_SHA256>(),
   };
 
+#if !defined(WITH_MBEDTLS)
+  static const auto ciphers_X25519_CHACHA20POLY1305_SHA256_Ed25519 =
+    CipherSuite::Ciphers{
+      HPKE(KEM::ID::DHKEM_X25519_SHA256,
+           KDF::ID::HKDF_SHA256,
+           AEAD::ID::CHACHA20_POLY1305),
+      Digest::get<Digest::ID::SHA256>(),
+      Signature::get<Signature::ID::Ed25519>(),
+    };
+#endif // !defined(WITH_MBEDTLS)
+
+  static const auto ciphers_P521_AES256GCM_SHA512_P521 = CipherSuite::Ciphers{
+    HPKE(
+      KEM::ID::DHKEM_P521_SHA512, KDF::ID::HKDF_SHA512, AEAD::ID::AES_256_GCM),
+    Digest::get<Digest::ID::SHA512>(),
+    Signature::get<Signature::ID::P521_SHA512>(),
+  };
+
+  static const auto ciphers_P384_AES256GCM_SHA384_P384 = CipherSuite::Ciphers{
+    HPKE(
+      KEM::ID::DHKEM_P384_SHA384, KDF::ID::HKDF_SHA384, AEAD::ID::AES_256_GCM),
+    Digest::get<Digest::ID::SHA384>(),
+    Signature::get<Signature::ID::P384_SHA384>(),
+  };
+
+#if !defined(WITH_BORINGSSL) && !defined(WITH_MBEDTLS)
+  static const auto ciphers_X448_AES256GCM_SHA512_Ed448 = CipherSuite::Ciphers{
+    HPKE(
+      KEM::ID::DHKEM_X448_SHA512, KDF::ID::HKDF_SHA512, AEAD::ID::AES_256_GCM),
+    Digest::get<Digest::ID::SHA512>(),
+    Signature::get<Signature::ID::Ed448>(),
+  };
+
+  static const auto ciphers_X448_CHACHA20POLY1305_SHA512_Ed448 =
+    CipherSuite::Ciphers{
+      HPKE(KEM::ID::DHKEM_X448_SHA512,
+           KDF::ID::HKDF_SHA512,
+           AEAD::ID::CHACHA20_POLY1305),
+      Digest::get<Digest::ID::SHA512>(),
+      Signature::get<Signature::ID::Ed448>(),
+    };
+#endif // !defined(WITH_BORINGSSL)
+
+#if defined(WITH_PQ)
+  static const auto ciphers_MLKEM768X25519_AES256GCM_SHA384_Ed25519 =
+    CipherSuite::Ciphers{
+      HPKE(
+        KEM::ID::MLKEM768_X25519, KDF::ID::HKDF_SHA384, AEAD::ID::AES_256_GCM),
+      Digest::get<Digest::ID::SHA384>(),
+      Signature::get<Signature::ID::Ed25519>(),
+    };
+
+  static const auto ciphers_MLKEM768P256_AES256GCM_SHA384_P256 =
+    CipherSuite::Ciphers{
+      HPKE(KEM::ID::MLKEM768_P256, KDF::ID::HKDF_SHA384, AEAD::ID::AES_256_GCM),
+      Digest::get<Digest::ID::SHA384>(),
+      Signature::get<Signature::ID::P256_SHA256>(),
+    };
+
+  static const auto ciphers_MLKEM1024P384_AES256GCM_SHA384_P384 =
+    CipherSuite::Ciphers{
+      HPKE(
+        KEM::ID::MLKEM1024_P384, KDF::ID::HKDF_SHA384, AEAD::ID::AES_256_GCM),
+      Digest::get<Digest::ID::SHA384>(),
+      Signature::get<Signature::ID::P384_SHA384>(),
+    };
+#endif // defined(WITH_PQ)
+
   switch (id) {
     case ID::unknown:
       throw InvalidParameterError("Uninitialized ciphersuite");
 
+#if !defined(WITH_MBEDTLS)
+    case ID::X25519_AES128GCM_SHA256_Ed25519:
+      return ciphers_X25519_AES128GCM_SHA256_Ed25519;
+#endif
+
     case ID::P256_AES128GCM_SHA256_P256:
       return ciphers_P256_AES128GCM_SHA256_P256;
+
+#if !defined(WITH_MBEDTLS)
+    case ID::X25519_CHACHA20POLY1305_SHA256_Ed25519:
+      return ciphers_X25519_CHACHA20POLY1305_SHA256_Ed25519;
+#endif
+
+    case ID::P521_AES256GCM_SHA512_P521:
+      return ciphers_P521_AES256GCM_SHA512_P521;
+
+    case ID::P384_AES256GCM_SHA384_P384:
+      return ciphers_P384_AES256GCM_SHA384_P384;
+
+#if !defined(WITH_BORINGSSL) && !defined(WITH_MBEDTLS)
+    case ID::X448_AES256GCM_SHA512_Ed448:
+      return ciphers_X448_AES256GCM_SHA512_Ed448;
+
+    case ID::X448_CHACHA20POLY1305_SHA512_Ed448:
+      return ciphers_X448_CHACHA20POLY1305_SHA512_Ed448;
+#endif
+
+#if defined(WITH_PQ)
+    case ID::MLKEM768X25519_AES256GCM_SHA384_Ed25519:
+      return ciphers_MLKEM768X25519_AES256GCM_SHA384_Ed25519;
+
+    case ID::MLKEM768P256_AES256GCM_SHA384_P256:
+      return ciphers_MLKEM768P256_AES256GCM_SHA384_P256;
+
+    case ID::MLKEM1024P384_AES256GCM_SHA384_P384:
+      return ciphers_MLKEM1024P384_AES256GCM_SHA384_P384;
+#endif
 
     default:
       throw InvalidParameterError("Unsupported ciphersuite");
@@ -141,6 +248,17 @@ CipherSuite::derive_tree_secret(const bytes& secret,
 const std::array<CipherSuite::ID, n_supported_suites>
   all_supported_cipher_suites = {
     CipherSuite::ID::P256_AES128GCM_SHA256_P256,
+    CipherSuite::ID::P521_AES256GCM_SHA512_P521,
+    CipherSuite::ID::P384_AES256GCM_SHA384_P384,
+#if !defined(WITH_BORINGSSL) && !defined(WITH_MBEDTLS)
+    CipherSuite::ID::X448_CHACHA20POLY1305_SHA512_Ed448,
+    CipherSuite::ID::X448_AES256GCM_SHA512_Ed448,
+#endif
+#if defined(WITH_PQ)
+    CipherSuite::ID::MLKEM768X25519_AES256GCM_SHA384_Ed25519,
+    CipherSuite::ID::MLKEM768P256_AES256GCM_SHA384_P256,
+    CipherSuite::ID::MLKEM1024P384_AES256GCM_SHA384_P384,
+#endif
   };
 
 // MakeKeyPackageRef(value) = KDF.expand(

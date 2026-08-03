@@ -1,171 +1,172 @@
 #ifndef VOICE_CLIENT_H
 #define VOICE_CLIENT_H
 
-#include "discord/dave/dave_session.h"
-#include "network/udp_client.h"
+#include "discord/dave_session.h"
+#include "discord/voice_audio.h"
+#include "discord/voice_capture.h"
 #include "network/websocket_client.h"
-#include <cstdint>
-#include <3ds.h>
-#include <deque>
-#include <map>
+#include <atomic>
+#include <functional>
 #include <mutex>
-#include <set>
+#include <shared_mutex>
 #include <string>
+#include <map>
+#include <set>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
-struct OpusDecoder;
-struct OpusEncoder;
+struct mbedtls_gcm_context;
 
 namespace Discord {
+
+enum class VoiceState {
+	DISCONNECTED,
+	AWAITING_SERVER,
+	CONNECTING,
+	IDENTIFYING,
+	READY,
+	SELECTING_PROTOCOL,
+	ESTABLISHED,
+	FAILED,
+};
 
 class VoiceClient {
   public:
 	static VoiceClient &getInstance();
 
-	std::mutex &getMutex() { return voiceMutex; }
+	void connect(const std::string &guildId, const std::string &channelId, bool ringRecipients = false);
+	void disconnect();
 
-	// Ciclo di vita
-	void init();
-	void joinChannel(const std::string &guildId, const std::string &channelId);
-	void leaveChannel();
-	void shutdown();
-	bool isConnected() const;
-	bool isInChannel() const;
+	VoiceState getState() const { return state; }
+	std::string getChannelId();
 
-	// Stato
-	std::string getCurrentChannelId() const;
-	std::string getCurrentGuildId() const;
-
-	// Audio control
-	void setMuted(bool mute);
-	void setDeafened(bool deaf);
-	void syncMuteState(bool mute, bool deaf);
-	bool isMuted() const;
-	bool isDeafened() const;
-
-	std::string getGuildId() const { return guildId; }
-	std::string getChannelId() const { return channelId; }
-	
-	bool isUserSpeaking(const std::string &userId) const;
-
-	// Callback dal Gateway
-	void onVoiceStateUpdate(const std::string &sessionId, const std::string &guildId, const std::string &channelId);
-	void onVoiceServerUpdate(const std::string &token, const std::string &endpoint);
-
-	// Main loop
 	void update();
 
+	void setStateCallback(std::function<void(VoiceState)> cb) { stateCallback = cb; }
+
   private:
-	mutable std::mutex voiceMutex;
-	VoiceClient();
+	VoiceClient() = default;
 	~VoiceClient();
 
 	VoiceClient(const VoiceClient &) = delete;
 	VoiceClient &operator=(const VoiceClient &) = delete;
 
-	Network::WebSocketClient voiceWs;
-	Network::UdpClient udp;
+	void onVoiceState(const std::string &session, bool srvMute, bool srvDeaf);
+	void publishVoiceState();
+	void onVoiceServer(const std::string &token, const std::string &endpoint, const std::string &serverId);
+	void tryStartSession();
+	void socketThread();
+	void handlePayload(const std::string &message);
+	void sendIdentify();
+	void sendHeartbeat();
+	void setState(VoiceState s);
 
-	enum class State { DISCONNECTED, WAITING_SERVER, CONNECTING_WS, IDENTIFYING, DISCOVERING_IP, SELECTING_PROTOCOL, READY };
-	State state;
+	bool openUdp();
+	void closeUdp();
+	void resetGcm();
+	bool discoverExternalAddress();
+	void sendSelectProtocol();
+	void mediaThread();
+	void pumpMicrophone(const std::string &selfId);
+	static void mediaThreadEntry(void *arg);
+	void handleRtpPacket(uint8_t *packet, size_t len);
+	void sendAudioFrame(const uint8_t *opusData, size_t opusLen);
+	void sendSpeaking(bool speaking);
+	void handleBinaryPayload(const std::string &message);
+	void sendBinary(uint8_t opcode, const std::vector<uint8_t> &payload);
+	std::set<std::string> recognizedUsers() const;
+	void recoverFromInvalidGroup();
 
-	// Credenziali
+	Network::WebSocketClient ws;
+	std::thread worker;
+	static constexpr size_t MEDIA_STACK_SIZE = 64 * 1024;
+	Thread media = nullptr;
+	std::atomic<bool> stopWorker{false};
+	std::atomic<bool> stopMedia{false};
+	VoiceAudio audio;
+	VoiceCapture capture;
+	EchoCanceller echo;
+	std::atomic<VoiceState> state{VoiceState::DISCONNECTED};
+	std::atomic<bool> serverMuted{false};
+	std::atomic<bool> serverDeafened{false};
+	bool mutedBeforeDeafen = false;
+
+	mutable std::mutex mutex;
 	std::string guildId;
 	std::string channelId;
-	std::string voiceToken;
-	std::string voiceEndpoint;
-	std::string selectedEncryptionMode;
-	bool hasVoiceServerInfo;
-	bool hasVoiceStateInfo;
-	
-	std::map<std::string, bool> speakingStates;
-	std::string voiceSessionId;
-	std::string currentUserId;
-	uint32_t ssrc;
+	std::string sessionId;
+	std::string token;
+	std::string endpoint;
+	std::string serverId;
+	bool haveState = false;
+	bool haveServer = false;
 
-	// DAVE (MLS end-to-end voice encryption)
-	DaveSession daveSession;
-	std::map<uint32_t, std::string> ssrcToUserId;
-	bool daveActive;
+	uint64_t heartbeatInterval = 0;
+	uint64_t lastHeartbeat = 0;
+	int64_t lastSequence = -1;
+	uint32_t ssrc = 0;
+	std::string udpIp;
+	int udpPort = 0;
+	std::vector<std::string> serverModes;
 
-	// Encryption
-	uint8_t secretKey[32];
+	int udpSocket = -1;
+	std::string externalIp;
+	int externalPort = 0;
+	std::string selectedMode;
+	std::vector<uint8_t> secretKey;
+	mbedtls_gcm_context *gcm = nullptr;
+	mutable std::shared_mutex ssrcMutex;
+	std::unordered_map<uint32_t, std::string> ssrcToUser;
+	std::set<std::string> roster;
+	std::atomic<bool> rosterPrimed{false};
+	// Discord clients stop sending audio instead of reliably sending a
+	// speaking:0, so activity is tracked by packet arrival and expires.
+	mutable std::shared_mutex speakingMutex;
+	std::unordered_map<std::string, uint64_t> speakingUntil;
+	static constexpr uint64_t SPEAKING_HOLD_MS = 200;
+	static constexpr uint64_t TRANSMIT_HOLD_MS = 200;
+	static constexpr int SPEAKING_PEAK_THRESHOLD = 1200;
+	void markSpeaking(const std::string &userId);
+	void clearSpeaking(const std::string &userId);
+	std::vector<uint8_t> externalSenderPackage;
+	uint32_t packetsDecoded = 0;
+	uint32_t decryptFailures = 0;
+	uint32_t daveDecryptFailures = 0;
+	uint8_t recvBuffer[1600];
+	uint8_t plainBuffer[1500];
+	uint8_t daveFrameBuffer[1500];
+	uint8_t sendBuffer[1500];
+	DaveSession dave;
+	int daveVersion = 0;
+	bool davePending = false;
+	bool daveWaitLogged = false;
+	int currentTransitionId = 0;
+	int invalidGroupRetries = 0;
+	static constexpr int MAX_INVALID_GROUP_RETRIES = 3;
+	uint32_t packetsSent = 0;
+	uint32_t sendNonce = 0;
+	uint16_t sendSequence = 0;
+	uint32_t sendTimestamp = 0;
+	bool speakingSent = false;
+	uint64_t transmitUntil = 0;
+	std::string ringChannelId;
+	std::atomic<bool> outgoingRing{false};
+	std::atomic<bool> ringPlaying{false};
+	int outgoingRingTimer = 0;
+	bool sawRinging = false;
+	void stopOutgoingRing();
 
-	// Opus - per-SSRC decoders for multi-user support
-	struct SsrcState {
-		OpusDecoder *decoder = nullptr;
-		uint16_t lastSeq = 0;
-		bool hasReceivedPacket = false;
-		uint64_t lastPacketTime = 0;
-	};
-	std::map<uint32_t, SsrcState> ssrcDecoders;
-	OpusEncoder *encoder;
+  public:
+	void setMuted(bool m);
+	bool isMuted() const { return capture.isMuted(); }
+	void setDeafened(bool d);
+	bool isDeafened() const { return audio.isDeafened(); }
+	bool isSpeaking(const std::string &userId) const;
+	bool isServerMuted() const { return serverMuted; }
+	bool isServerDeafened() const { return serverDeafened; }
 
-	// RTP
-	uint16_t sequence;
-	uint32_t timestamp;
-	uint32_t transportNonceCounter;
-
-	bool muted;
-	bool deafened;
-	bool shuttingDown;
-	bool pendingLeave;
-	bool pendingLeaveNotifyGateway;
-
-	int heartbeatInterval;
-	uint64_t lastHeartbeatTime;
-	uint64_t lastDiscoveryTime;
-	uint64_t lastUdpKeepaliveTime;
-	uint64_t nextTransmitTime;
-	int discoveryRetries;
-	uint16_t lastVoiceGatewaySequence;
-
-	std::deque<int16_t> capturePcmAccumulator;
-	std::deque<int16_t> micAccumulator;
-	std::vector<uint8_t> decodeBuf;
-	std::vector<uint8_t> encodeBuf;
-	std::vector<uint8_t> sframeEncryptBuf;
-	std::vector<uint8_t> sframeDecryptBuf;
-	std::vector<int16_t> pcmBuf;
-	double captureResamplePosition;
-	bool isSpeakingStatus;
-	int silenceFramesToSend;
-	
-	Thread voiceThread;
-	static void threadMain(void *arg);
-
-	// Funzioni di supporto
-	void handleVoiceWsMessage(std::string &msg);
-	void handleVoiceWsBinaryMessage(std::vector<uint8_t> &msg);
-	void tryStartVoiceConnectionLocked();
-	void leaveChannelLocked(bool notifyGateway);
-	void requestLeaveLocked(bool notifyGateway, const char *reason);
-	void resetConnectionStateLocked();
-	bool initializeCodecsLocked();
-	void destroyCodecsLocked();
-	void cleanupStaleSsrcDecodersLocked(uint64_t now);
-	OpusDecoder *getOrCreateDecoderLocked(uint32_t ssrc);
-	void resampleCaptureToDiscordRateLocked();
-	void processIncomingAudioLocked();
-	void processOutgoingAudioLocked();
-	size_t getRtpHeaderSize(const uint8_t *data, size_t len) const;
-	uint32_t extractSsrc(const uint8_t *rtpHeader) const;
-	uint16_t extractSequence(const uint8_t *rtpHeader) const;
-	void sendVoiceIdentify();
-	void sendVoiceSpeaking(bool speaking);
-	void performIpDiscovery();
-	void sendSelectProtocol(const std::string &ip, int port);
-
-	// DAVE
-	void handleDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload);
-	void sendDaveBinaryOpcode(uint8_t opcode, const std::vector<uint8_t> &payload);
-	void sendDaveTransitionReady(int transitionId);
-	void sendDaveInvalidCommitWelcome(int transitionId);
-	std::set<std::string> buildRecognizedUserIdsLocked() const;
-
-	// Crypto
-	void encryptAudioPacket(const uint8_t *opus, size_t len, std::vector<uint8_t> &out);
-	bool decryptAudioPacket(const uint8_t *data, size_t len, std::vector<uint8_t> &out);
+	std::function<void(VoiceState)> stateCallback;
 };
 
 } // namespace Discord

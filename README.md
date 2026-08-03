@@ -6,6 +6,7 @@
 ![License](https://img.shields.io/badge/license-GPLv3-green)
 ![Platform](https://img.shields.io/badge/platform-Nintendo%203DS-red)
 ![Downloads](https://img.shields.io/github/downloads/MisterY3515/TriCord-Revanced/total?style=flat&color=blue)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat&logo=discord&logoColor=white)](https://discord.gg/quYy9fK8tJ)
 
 Discord client for Nintendo 3DS.
 
@@ -134,11 +135,26 @@ The repository also contains a GitHub Actions workflow that builds the project a
 - [RapidJSON](https://github.com/Tencent/rapidjson)
 - [stb_image](https://github.com/nothings/stb)
 - [qrcodegen](https://github.com/nayuki/QR-Code-generator)
+- [mlspp](https://github.com/cisco/mlspp) (BSD 2-Clause License)
+- [libdave](https://github.com/discord/libdave) (MIT License)
+- [WebRTC AECM](https://github.com/webrtc-mirror/webrtc) (BSD 3-Clause License)
 
 ### Additional resources
 
 - CA bundle from [curl.se](https://curl.se/docs/caextract.html)
 - [Twemoji](https://github.com/jdecked/twemoji)
+
+## FAQ
+
+### Is there a possibility of an account ban/suspension?
+Because WebSockets are properly implemented, the risk is relatively lower compared to previous Discord clients for the 3DS. However, since it is an unofficial client, I cannot guarantee that the risk is zero. You should assume that there is always a risk of getting banned. As stated in the disclaimer, I take no responsibility for any account bans or suspensions.
+
+### I cannot log in with the error "Failed to exchange ticket" or "Login failed: Login failed: 0"
+This appears to be due to SSL verification failing for some reason. In v0.4.0 or later, you can open Settings, press **Y**, and search for `devmode` to temporarily reveal "Developer Options" at the bottom of the list. By toggling **SSL Verification** to **OFF**, you can skip SSL checks and attempt to connect.
+>**WARNING:** Disabling SSL verification lowers security and makes you vulnerable to Man-in-the-Middle (MITM) attacks. If you have any security concerns, do not use this option. I do not accept bug reports or provide support for settings within the Developer Options.
+
+### I want to add or improve a translation
+Please help us translate TriCord into your language on our [Crowdin project](https://crowdin.com/project/tricord). If your language is not listed, you can request it directly by clicking the "Request New Language" button on the Crowdin page.
 
 ## Known Issues
 
@@ -161,5 +177,5 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
 - [MorrisTheGamer](https://github.com/MorrisTheGamer) for the German translation
 - [ReisuErx](https://github.com/ReisuErx) for the Polish translation
 - [wiretoscreen](https://github.com/wiretoscreen) for the Brazilian Portuguese translation
+- [murloc-tinyfin](https://github.com/murloc-tinyfin) for the Simplified Chinese translation
 - [Discord Userdoccers](https://github.com/discord-userdoccers/discord-userdoccers) for the documentation of the Discord API
-- And all other contributors!

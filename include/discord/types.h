@@ -2,6 +2,7 @@
 #define DISCORD_TYPES_H
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -15,30 +16,38 @@ struct User {
 	std::string discriminator;
 	std::string global_name;
 	std::string avatar;
+	bool bot = false;
 	UserStatus status = UserStatus::UNKNOWN;
 };
 
 struct Overwrite {
 	std::string id;
-	int type;
-	uint64_t allow;
-	uint64_t deny;
+	int type = 0;
+	uint64_t allow = 0;
+	uint64_t deny = 0;
+};
+
+struct UserProfile {
+	std::string userId;
+	std::string bio;
+	std::string pronouns;
+	bool loaded = false;
 };
 
 struct Channel {
 	std::string id;
 	std::string name;
 	std::string parent_id;
-	int type;
-	int flags;
-	int position;
-	bool viewable;
+	int type = 0;
+	int flags = 0;
+	int position = 0;
+	bool viewable = false;
 	std::string topic;
-	int message_count;
+	int message_count = 0;
 	std::string last_message_id;
 	std::string owner_id;
 	std::string owner_name;
-	int owner_color;
+	int owner_color = 0;
 	std::string last_message_content;
 	std::string op_content;
 	bool is_archived = false;
@@ -58,32 +67,35 @@ const uint64_t SEND_MESSAGES = 1ULL << 11;
 struct Role {
 	std::string id;
 	std::string name;
-	int color;
-	int position;
-	uint64_t permissions;
+	int color = 0;
+	int position = 0;
+	uint64_t permissions = 0;
 };
 
 struct Member {
 	std::string user_id;
 	std::string nickname;
+	std::string username;
+	std::string globalName;
+	std::string avatar;
 	std::vector<std::string> role_ids;
 };
 
-struct VoiceState {
-	std::string user_id;
-	std::string channel_id;
-	std::string session_id;
-	bool mute;
-	bool deaf;
-	bool self_mute;
-	bool self_deaf;
-	bool self_video;
+struct VoiceParticipant {
+	std::string userId;
+	std::string guildId;
+	std::string name;
+	std::string avatar;
+	bool selfMute = false;
+	bool selfDeaf = false;
+	bool mute = false;
+	bool deaf = false;
 };
 
 struct GuildFolder {
 	std::string id;
 	std::string name;
-	int color;
+	int color = 0;
 	std::vector<std::string> guildIds;
 };
 
@@ -100,20 +112,47 @@ struct Guild {
 	std::vector<std::string> myRoles;
 	std::vector<Role> roles;
 	std::vector<Member> members;
-	std::vector<VoiceState> voiceStates;
+};
+
+struct ReadState {
+	std::string channelId;
+	std::string lastReadMessageId;
+	int mentionCount = 0;
+	std::string ackToken;
+};
+
+struct ChannelNotificationOverride {
+	std::string channelId;
+	bool muted = false;
+	std::string muteEndTime;
+	int messageNotifications = 3; // 3=inherit, 0=all, 1=mentions, 2=none
+	int flags = 0;
+	// flags: 1<<9=ONLY_MENTIONS, 1<<10=ALL_MESSAGES (precedes notification settings)
+};
+
+struct GuildNotificationSettings {
+	std::string guildId;
+	bool muted = false;
+	std::string muteEndTime;
+	int messageNotifications = 3;
+	int flags = 0;
+	bool suppressEveryone = false;
+	bool suppressRoles = false;
+	// flags: 1<<11=ALL_MESSAGES, 1<<12=ONLY_MENTIONS
+	std::map<std::string, ChannelNotificationOverride> channelOverrides;
 };
 
 struct EmbedField {
 	std::string name;
 	std::string value;
-	bool isInline;
+	bool isInline = false;
 };
 
 struct Embed {
 	std::string title;
 	std::string description;
 	std::string url;
-	int color;
+	int color = 0;
 	std::string author_name;
 	std::string author_icon_url;
 	std::string footer_text;
@@ -137,33 +176,60 @@ struct Attachment {
 	std::string filename;
 	std::string url;
 	std::string proxy_url;
-	int size;
-	int width;
-	int height;
+	int size = 0;
+	int width = 0;
+	int height = 0;
 	std::string content_type;
 };
 
 struct Sticker {
 	std::string id;
 	std::string name;
-	int format_type;
+	int format_type = 0;
 };
 
 struct Emoji {
 	std::string id;
 	std::string name;
-	bool animated;
+	mutable std::string hex;
+	bool animated = false;
 };
 
 struct Reaction {
 	Emoji emoji;
-	int count;
-	bool me;
+	int count = 0;
+	bool me = false;
+};
+
+struct PollAnswer {
+	int id = 0;
+	std::string text;
+	Emoji emoji;
+	int count = 0;
+	bool meVoted = false;
+};
+
+struct Poll {
+	std::string question;
+	std::vector<PollAnswer> answers;
+	std::string expiry;
+	bool allowMultiselect = false;
+	bool finalized = false;
+};
+
+struct PollResult {
+	std::string question;
+	std::string winnerText;
+	Emoji winnerEmoji;
+	int totalVotes = 0;
+	int winnerVotes = 0;
+	bool hasWinner = false;
 };
 
 struct Message {
 	std::string id;
 	std::string content;
+	std::string displayContent;
 	std::string timestamp;
 	std::string channelId;
 	User author;
@@ -173,6 +239,8 @@ struct Message {
 	std::vector<Sticker> stickers;
 	std::vector<Reaction> reactions;
 	std::vector<User> mentions;
+	bool mentionEveryone = false;
+	std::vector<std::string> mentionRoles;
 
 	std::string referencedMessageId;
 	std::string referencedAuthorName;
@@ -186,6 +254,12 @@ struct Message {
 	std::string originalAuthorName;
 	std::string originalAuthorAvatar;
 	std::string nonce;
+
+	bool hasPoll = false;
+	Poll poll;
+
+	bool hasPollResult = false;
+	PollResult pollResult;
 };
 
 } // namespace Discord

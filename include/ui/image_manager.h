@@ -3,6 +3,7 @@
 
 #include "network/network_manager.h"
 #include "utils/image_utils.h"
+#include "utils/worker_thread.h"
 #include <atomic>
 #include <citro2d.h>
 #include <deque>
@@ -11,7 +12,7 @@
 #include <mutex>
 #include <set>
 #include <string>
-#include <vector>
+#include <string_view>
 
 namespace UI {
 
@@ -31,9 +32,9 @@ class ImageManager {
 	};
 
 	C3D_Tex *getImage(const std::string &url);
-	ImageInfo getImageInfo(const std::string &url);
+	ImageInfo getImageInfo(std::string_view url);
 
-	C3D_Tex *getLocalImage(const std::string &path, bool noResize = false);
+	C3D_Tex *getLocalImage(std::string_view path, bool noResize = false);
 
 	void prefetch(const std::string &url, int origW = 0, int origH = 0,
 	              Network::RequestPriority priority = Network::RequestPriority::BACKGROUND);
@@ -44,6 +45,10 @@ class ImageManager {
 	void clearFailed(const std::string &url);
 	void clearRemote();
 	uint32_t getGeneration() const { return generation; }
+
+	size_t getCacheBytes();
+	size_t getCacheCount();
+	static constexpr size_t getCacheBudget() { return MAX_CACHE_BYTES; }
 
   private:
 	ImageManager() = default;
@@ -61,13 +66,11 @@ class ImageManager {
 	struct DecodeRequest {
 		std::string url;
 		std::string body;
-		int maxWidth = 512;
-		int maxHeight = 512;
 		int sessionId = 0;
 		Network::RequestPriority priority;
 	};
 
-	std::map<std::string, ImageInfo> textureCache;
+	std::map<std::string, ImageInfo, std::less<>> textureCache;
 	std::list<std::string> lruList;
 	std::set<std::string> fetchingUrls;
 	std::deque<PendingTexture> pendingTextures;
@@ -76,17 +79,20 @@ class ImageManager {
 	std::mutex cacheMutex;
 	std::mutex decodeMutex;
 	std::condition_variable decodeCv;
-	std::thread decoderThread;
+	std::condition_variable pendingCv;
+	Utils::WorkerThread decoderThread;
 	std::atomic<bool> stopDecoder{false};
 
 	std::atomic<int> currentSessionId{0};
 	std::atomic<uint32_t> generation{0};
 
-	static constexpr size_t MAX_CACHE_BYTES = 8 * 1024 * 1024; // 8MB
+	static constexpr size_t MAX_CACHE_BYTES = 12 * 1024 * 1024;
 	static constexpr size_t MIN_CACHE_ENTRIES = 8;
+	static constexpr size_t MAX_PENDING_TEXTURES = 4;
 	size_t currentCacheBytes = 0;
 	void touchImage(const std::string &url);
 	void evictOldest();
+	void freePendingLocked();
 	void decoderWorker();
 };
 

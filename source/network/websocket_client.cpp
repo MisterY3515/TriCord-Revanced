@@ -17,12 +17,13 @@
 #include <mbedtls/sha1.h>
 #include <mbedtls/ssl.h>
 
+#include <zlib.h>
+
 namespace Network {
 
 WebSocketClient::WebSocketClient()
-    : sockfd(-1), state(WebSocketState::DISCONNECTED), port(443), useTLS(true),
-      fragmentedOpcode(WebSocketOpcode::CONTINUATION), fragmentedMessageInProgress(false), sslContext(nullptr),
-      sslConfig(nullptr), ctrDrbg(nullptr), entropy(nullptr), serverFd(nullptr) {}
+    : sockfd(-1), state(WebSocketState::DISCONNECTED), port(443), useTLS(true), sslContext(nullptr), sslConfig(nullptr),
+      ctrDrbg(nullptr), entropy(nullptr), serverFd(nullptr) {}
 
 WebSocketClient::~WebSocketClient() {
 	disconnect();
@@ -71,6 +72,62 @@ bool WebSocketClient::parseUrl(const std::string &url) {
 
 	Logger::log("[WS] Parsed URL: host=%s, port=%d, path=%s, tls=%d", host.c_str(), port, path.c_str(), useTLS);
 
+	return true;
+}
+
+bool WebSocketClient::initInflate() {
+	freeInflate();
+
+	z_stream *zs = new z_stream;
+	memset(zs, 0, sizeof(*zs));
+	if (inflateInit(zs) != Z_OK) {
+		delete zs;
+		return false;
+	}
+
+	inflateStream = zs;
+	inflateInput.clear();
+	// Heap-backed: this runs on a std::thread, which only gets a 32KB stack.
+	inflateChunk.resize(8192);
+	return true;
+}
+
+void WebSocketClient::freeInflate() {
+	if (!inflateStream) {
+		return;
+	}
+	inflateEnd((z_stream *)inflateStream);
+	delete (z_stream *)inflateStream;
+	inflateStream = nullptr;
+	inflateInput.clear();
+}
+
+bool WebSocketClient::inflateBuffered(std::string &out) {
+	z_stream *zs = (z_stream *)inflateStream;
+	if (!zs) {
+		return false;
+	}
+
+	zs->next_in = inflateInput.data();
+	zs->avail_in = (uInt)inflateInput.size();
+
+	out.clear();
+	int ret = Z_OK;
+	do {
+		zs->next_out = inflateChunk.data();
+		zs->avail_out = (uInt)inflateChunk.size();
+
+		ret = inflate(zs, Z_SYNC_FLUSH);
+		if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR) {
+			Logger::log("WS inflate failed: %d", ret);
+			inflateInput.clear();
+			return false;
+		}
+
+		out.append((const char *)inflateChunk.data(), inflateChunk.size() - zs->avail_out);
+	} while (zs->avail_out == 0);
+
+	inflateInput.clear();
 	return true;
 }
 
@@ -172,7 +229,6 @@ bool WebSocketClient::performHandshake() {
 }
 
 bool WebSocketClient::connect(const std::string &url) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
 	if (state == WebSocketState::CONNECTED || state == WebSocketState::CONNECTING) {
 		Logger::log("WS connect called but already connected/connecting");
 		return false;
@@ -181,6 +237,12 @@ bool WebSocketClient::connect(const std::string &url) {
 	Logger::log("WS connect %s", url.c_str());
 	if (!parseUrl(url)) {
 		Logger::log("WS parseUrl failed");
+		return false;
+	}
+
+	zlibStream = url.find("compress=zlib-stream") != std::string::npos;
+	if (zlibStream && !initInflate()) {
+		Logger::log("WS inflateInit failed");
 		return false;
 	}
 
@@ -281,70 +343,47 @@ bool WebSocketClient::connect(const std::string &url) {
 }
 
 void WebSocketClient::disconnect(int code, const std::string &reason) {
+	if (state == WebSocketState::DISCONNECTED || state == WebSocketState::CLOSED) {
+		return;
+	}
+
+	state = WebSocketState::CLOSING;
+
 	{
-		std::lock_guard<std::mutex> ioLock(ioMutex);
-		disconnectLocked(code, reason, true);
-	}
-}
+		std::lock_guard<std::mutex> lock(sendMutex);
+		std::vector<uint8_t> frame;
+		uint8_t closeFrame[4];
+		closeFrame[0] = (code >> 8) & 0xFF;
+		closeFrame[1] = code & 0xFF;
+		frame.push_back(0x80 | static_cast<uint8_t>(WebSocketOpcode::CLOSE));
+		frame.push_back(0x80 | 2);
 
-bool WebSocketClient::isConnected() const {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	return state == WebSocketState::CONNECTED;
-}
-
-void WebSocketClient::forceClose() {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	// Close the underlying network fd to unblock any blocking I/O on another thread.
-	// Does NOT clean up TLS contexts — that happens in disconnect() later.
-	if (serverFd) {
-		mbedtls_net_free((mbedtls_net_context *)serverFd);
-	}
-	state = WebSocketState::CLOSED;
-}
-
-WebSocketState WebSocketClient::getState() const {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	return state;
-}
-
-void WebSocketClient::disconnectLocked(int code, const std::string &reason, bool sendCloseFrame) {
-	if (state == WebSocketState::DISCONNECTED) {
-		return;
-	}
-
-	if (state == WebSocketState::CLOSED) {
-		cleanupTLS();
-		state = WebSocketState::DISCONNECTED;
-		return;
-	}
-
-	if (state == WebSocketState::CONNECTED || state == WebSocketState::CONNECTING) {
-		state = WebSocketState::CLOSING;
-		if (sendCloseFrame) {
-			uint8_t closeFrame[2];
-			closeFrame[0] = (code >> 8) & 0xFF;
-			closeFrame[1] = code & 0xFF;
-			sendFrameLocked(WebSocketOpcode::CLOSE, closeFrame, sizeof(closeFrame));
+		uint8_t mask[4] = {0, 0, 0, 0};
+		for (int i = 0; i < 4; i++) {
+			frame.push_back(mask[i]);
 		}
+
+		frame.push_back(closeFrame[0] ^ mask[0]);
+		frame.push_back(closeFrame[1] ^ mask[1]);
+
+		rawSend(frame.data(), frame.size());
 	}
 
 	cleanupTLS();
-	state = WebSocketState::DISCONNECTED;
-	receiveBuffer.clear();
-	fragmentedOpcode = WebSocketOpcode::CONTINUATION;
-	fragmentedMessageInProgress = false;
-	(void)reason;
+	freeInflate();
+
+	state = WebSocketState::CLOSED;
+
+	if (onClose) {
+		onClose(code, reason);
+	}
 }
+
+bool WebSocketClient::isConnected() const { return state == WebSocketState::CONNECTED; }
+
+WebSocketState WebSocketClient::getState() const { return state; }
 
 bool WebSocketClient::sendFrame(WebSocketOpcode opcode, const void *data, size_t len) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	if (state != WebSocketState::CONNECTED) {
-		return false;
-	}
-	return sendFrameLocked(opcode, data, len);
-}
-
-bool WebSocketClient::sendFrameLocked(WebSocketOpcode opcode, const void *data, size_t len) {
 	std::lock_guard<std::mutex> lock(sendMutex);
 	std::vector<uint8_t> frame;
 
@@ -379,19 +418,19 @@ bool WebSocketClient::sendFrameLocked(WebSocketOpcode opcode, const void *data, 
 }
 
 bool WebSocketClient::send(const std::string &message) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
 	if (state != WebSocketState::CONNECTED) {
 		return false;
 	}
-	return sendFrameLocked(WebSocketOpcode::TEXT, message.c_str(), message.length());
+
+	return sendFrame(WebSocketOpcode::TEXT, message.c_str(), message.length());
 }
 
 bool WebSocketClient::sendBinary(const std::vector<uint8_t> &data) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
 	if (state != WebSocketState::CONNECTED) {
 		return false;
 	}
-	return sendFrameLocked(WebSocketOpcode::BINARY, data.data(), data.size());
+
+	return sendFrame(WebSocketOpcode::BINARY, data.data(), data.size());
 }
 
 bool WebSocketClient::recvExact(void *data, size_t len) {
@@ -408,43 +447,45 @@ bool WebSocketClient::recvExact(void *data, size_t len) {
 		} else if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_TIMEOUT) {
 			usleep(1000);
 			retryCount++;
-			if (retryCount > 5000) return false;
+			if (retryCount > 5000) {
+				if (onError) {
+					onError("recvExact timeout");
+				}
+				return false;
+			}
 			continue;
 		} else {
+
+			if (r != 0) {
+			}
 			return false;
 		}
 	}
 	return true;
 }
 
-WebSocketClient::ReceiveResult WebSocketClient::receiveFrame(std::string &message, std::vector<uint8_t> &binaryMessage,
-                                                            int &closeCode, std::string &closeReason, std::string &error) {
-	message.clear();
-	binaryMessage.clear();
-	closeCode = 0;
-	closeReason.clear();
-	error.clear();
-
+bool WebSocketClient::receiveFrame(std::string &message) {
 	uint8_t header[2];
 	int received = rawRecv(header, 2);
 
 	if (received <= 0) {
 		if (received == MBEDTLS_ERR_SSL_WANT_READ || received == MBEDTLS_ERR_SSL_TIMEOUT || received == -1) {
-			return ReceiveResult::NONE;
+			return false;
 		}
 		if (received < -1) {
-			char errMsg[64];
-			snprintf(errMsg, sizeof(errMsg), "Recv error: %d", received);
-			error = errMsg;
-			return ReceiveResult::ERROR;
+			if (onError) {
+				char errMsg[64];
+				snprintf(errMsg, sizeof(errMsg), "Recv error: %d", received);
+				onError(errMsg);
+			}
+			disconnect();
 		}
-		return ReceiveResult::NONE;
+		return false;
 	}
 
 	if (received == 1) {
 		if (!recvExact(header + 1, 1)) {
-			error = "Failed to read websocket header";
-			return ReceiveResult::ERROR;
+			return false;
 		}
 	}
 
@@ -457,15 +498,13 @@ WebSocketClient::ReceiveResult WebSocketClient::receiveFrame(std::string &messag
 	if (payloadLen == 126) {
 		uint8_t extLen[2];
 		if (!recvExact(extLen, 2)) {
-			error = "Failed to read extended length";
-			return ReceiveResult::ERROR;
+			return false;
 		}
 		payloadLen = (extLen[0] << 8) | extLen[1];
 	} else if (payloadLen == 127) {
 		uint8_t extLen[8];
 		if (!recvExact(extLen, 8)) {
-			error = "Failed to read extended length";
-			return ReceiveResult::ERROR;
+			return false;
 		}
 		payloadLen = 0;
 		for (int i = 0; i < 8; i++) {
@@ -473,29 +512,20 @@ WebSocketClient::ReceiveResult WebSocketClient::receiveFrame(std::string &messag
 		}
 	}
 
-	constexpr size_t kMaxPayloadLen = 8 * 1024 * 1024;
-	if (payloadLen > kMaxPayloadLen) {
-		char errMsg[96];
-		snprintf(errMsg, sizeof(errMsg), "WebSocket payload too large: %u", (unsigned)payloadLen);
-		error = errMsg;
-		closeCode = 1009;
-		closeReason = "Message too big";
-		return ReceiveResult::ERROR;
-	}
-
 	uint8_t mask[4] = {0};
 	if (masked) {
 		if (!recvExact(mask, 4)) {
-			error = "Failed to read mask";
-			return ReceiveResult::ERROR;
+			return false;
 		}
 	}
 
 	std::vector<uint8_t> payload(payloadLen);
 	if (payloadLen > 0) {
 		if (!recvExact(payload.data(), payloadLen)) {
-			error = "Failed to read payload";
-			return ReceiveResult::ERROR;
+			if (onError) {
+				onError("Failed to read payload");
+			}
+			return false;
 		}
 
 		if (masked) {
@@ -507,132 +537,77 @@ WebSocketClient::ReceiveResult WebSocketClient::receiveFrame(std::string &messag
 
 	switch (opcode) {
 	case WebSocketOpcode::TEXT:
+		message = std::string(payload.begin(), payload.end());
+		return true;
+
 	case WebSocketOpcode::BINARY:
-	case WebSocketOpcode::CONTINUATION: {
-		if (opcode == WebSocketOpcode::CONTINUATION) {
-			if (!fragmentedMessageInProgress) {
-				error = "Unexpected websocket continuation frame";
-				return ReceiveResult::ERROR;
-			}
-		} else if (!fin) {
-			receiveBuffer = std::move(payload);
-			fragmentedOpcode = opcode;
-			fragmentedMessageInProgress = true;
-			return ReceiveResult::NONE;
-		}
-
-		WebSocketOpcode finalOpcode = opcode;
-		if (fragmentedMessageInProgress) {
-			receiveBuffer.insert(receiveBuffer.end(), payload.begin(), payload.end());
-			if (!fin) {
-				return ReceiveResult::NONE;
-			}
-			payload.swap(receiveBuffer);
-			finalOpcode = fragmentedOpcode;
-			receiveBuffer.clear();
-			fragmentedOpcode = WebSocketOpcode::CONTINUATION;
-			fragmentedMessageInProgress = false;
-		}
-
-		if (finalOpcode == WebSocketOpcode::TEXT) {
-			message.assign(payload.begin(), payload.end());
-			return ReceiveResult::TEXT_MESSAGE;
-		}
-		binaryMessage = std::move(payload);
-		return ReceiveResult::BINARY_MESSAGE;
-	}
+		lastFrameBinary = true;
+		message = std::string(payload.begin(), payload.end());
+		return true;
 
 	case WebSocketOpcode::CLOSE: {
-		closeCode = 1000;
+		int closeCode = 1000;
 		if (payload.size() >= 2) {
 			closeCode = (payload[0] << 8) | payload[1];
-			if (payload.size() > 2) {
-				closeReason.assign(payload.begin() + 2, payload.end());
-			}
 		}
-		return ReceiveResult::CLOSE;
+		disconnect(closeCode);
+		return false;
 	}
 
 	case WebSocketOpcode::PING:
-		sendFrameLocked(WebSocketOpcode::PONG, payload.data(), payload.size());
-		return ReceiveResult::NONE;
+		sendFrame(WebSocketOpcode::PONG, payload.data(), payload.size());
+		return false;
 
 	case WebSocketOpcode::PONG:
-		return ReceiveResult::NONE;
+		return false;
 
 	default:
-		return ReceiveResult::NONE;
+		return false;
 	}
 }
 
 void WebSocketClient::poll() {
-	MessageCallback msgCb;
-	BinaryMessageCallback binaryCb;
-	ErrorCallback errCb;
-	CloseCallback closeCb;
-	std::string message;
-	std::vector<uint8_t> binaryMessage;
-	int closeCode = 0;
-	std::string closeReason;
-	std::string error;
-	bool shouldClose = false;
-	bool shouldError = false;
+	if (state != WebSocketState::CONNECTED) {
+		return;
+	}
 
-	{
-		std::lock_guard<std::mutex> ioLock(ioMutex);
-		if (state != WebSocketState::CONNECTED) {
+	std::string message;
+	lastFrameBinary = false;
+	if (!receiveFrame(message) || message.empty()) {
+		return;
+	}
+
+	// A compressed message can span several frames, ending at Z_SYNC_FLUSH.
+	if (zlibStream && lastFrameBinary) {
+		inflateInput.insert(inflateInput.end(), message.begin(), message.end());
+
+		static const uint8_t SYNC_FLUSH[4] = {0x00, 0x00, 0xFF, 0xFF};
+		if (inflateInput.size() < sizeof(SYNC_FLUSH) ||
+		    memcmp(inflateInput.data() + inflateInput.size() - sizeof(SYNC_FLUSH), SYNC_FLUSH, sizeof(SYNC_FLUSH)) !=
+		        0) {
 			return;
 		}
 
-		const ReceiveResult result = receiveFrame(message, binaryMessage, closeCode, closeReason, error);
-		msgCb = onMessage;
-		binaryCb = onBinaryMessage;
-		errCb = onError;
-		closeCb = onClose;
-
-		if (result == ReceiveResult::CLOSE) {
-			disconnectLocked(closeCode == 0 ? 1000 : closeCode, closeReason, true);
-			shouldClose = true;
-		} else if (result == ReceiveResult::ERROR) {
-			const bool sendClose = closeCode != 0;
-			disconnectLocked(sendClose ? closeCode : 1000, closeReason, sendClose);
-			shouldError = true;
-			shouldClose = true;
+		std::string json;
+		if (inflateBuffered(json) && !json.empty() && onMessage) {
+			onMessage(json);
 		}
+		return;
 	}
 
-	if (!message.empty() && msgCb) {
-		msgCb(message);
-	}
-	if (!binaryMessage.empty() && binaryCb) {
-		binaryCb(binaryMessage);
-	}
-	if (shouldError && errCb && !error.empty()) {
-		errCb(error);
-	}
-	if (shouldClose && closeCb) {
-		closeCb(closeCode == 0 ? 1000 : closeCode, closeReason);
+	if (lastFrameBinary && onBinaryMessage) {
+		onBinaryMessage(message);
+	} else if (onMessage) {
+		onMessage(message);
 	}
 }
 
-void WebSocketClient::setOnMessage(MessageCallback callback) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	onMessage = callback;
-}
+void WebSocketClient::setOnBinaryMessage(MessageCallback callback) { onBinaryMessage = callback; }
 
-void WebSocketClient::setOnBinaryMessage(BinaryMessageCallback callback) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	onBinaryMessage = callback;
-}
+void WebSocketClient::setOnMessage(MessageCallback callback) { onMessage = callback; }
 
-void WebSocketClient::setOnError(ErrorCallback callback) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	onError = callback;
-}
+void WebSocketClient::setOnError(ErrorCallback callback) { onError = callback; }
 
-void WebSocketClient::setOnClose(CloseCallback callback) {
-	std::lock_guard<std::mutex> ioLock(ioMutex);
-	onClose = callback;
-}
+void WebSocketClient::setOnClose(CloseCallback callback) { onClose = callback; }
 
 } // namespace Network

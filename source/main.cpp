@@ -1,16 +1,15 @@
 #include "core/config.h"
 #include "core/i18n.h"
-#include "audio/audio_manager.h"
+#include "core/updater.h"
 #include "discord/discord_client.h"
 #include "discord/voice_client.h"
 #include "log.h"
-#include "core/updater.h"
 #include "network/http_client.h"
 #include "network/network_manager.h"
 #include "ui/image_manager.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"
-#include "dave_exception_smoketest.h"
+#include "utils/sound_player.h"
 #include <3ds.h>
 #include <citro2d.h>
 #include <citro3d.h>
@@ -21,7 +20,6 @@ static const size_t SOC_SHAREDMEM_SIZE = 0x200000;
 static u32 *soc_sharedmem_ptr = NULL;
 
 int main(int argc, char **argv) {
-	Logger::setCrashContext("startup: begin");
 	osSetSpeedupEnable(true);
 	gfxInitDefault();
 
@@ -37,13 +35,19 @@ int main(int argc, char **argv) {
 	romfsInit();
 	psInit();
 
-	Logger::init();
+	if (R_SUCCEEDED(ndspInit())) {
+		ndspSetOutputMode(NDSP_OUTPUT_MONO);
+		Utils::SoundPlayer::getInstance().init();
+	} else {
+		Logger::log("Audio unavailable (is dspfirm.cdc dumped?)");
+	}
 
-	Logger::setCrashContext("startup: logger initialized");
+	Logger::init();
 	Logger::log("TriCord - Discord for 3DS starting...");
-	Logger::log("[DAVE] Exceptions/RTTI build override smoke test: %s",
-	            daveExceptionSmokeTest() ? "OK" : "FAILED");
-	Logger::setCrashContext("startup: load config");
+	Logger::log("[Mem] app region %luKB (free %luKB), linear free %luKB",
+	            (unsigned long)(osGetMemRegionSize(MEMREGION_APPLICATION) / 1024),
+	            (unsigned long)(osGetMemRegionFree(MEMREGION_APPLICATION) / 1024),
+	            (unsigned long)(linearSpaceFree() / 1024));
 	Config::getInstance().load();
 	Network::NetworkManager::getInstance().init(3, 2);
 
@@ -55,39 +59,29 @@ int main(int argc, char **argv) {
 	}
 
 	UI::ImageManager::getInstance().init();
-	Audio::AudioManager::getInstance().init();
 	Discord::DiscordClient::getInstance().init();
-	Discord::VoiceClient::getInstance().init();
 	UI::ScreenManager::getInstance().init();
 
 	// Check for updates in the background
-	Thread updateThread = threadCreate([](void*) {
-		Updater::getInstance().checkForUpdates(true);
-	}, nullptr, 16 * 1024, 0x1A, -2, false);
-
-	Logger::setCrashContext("main loop: entering aptMainLoop");
+	Thread updateThread = threadCreate([](void *) { Updater::getInstance().checkForUpdates(true); }, nullptr,
+	                                    16 * 1024, 0x1A, -2, false);
 
 	while (aptMainLoop()) {
 		hidScanInput();
 
-		Logger::setCrashContext("main loop: ScreenManager::update");
 		UI::ScreenManager::getInstance().update();
-		Logger::setCrashContext("main loop: DiscordClient::update");
 		Discord::DiscordClient::getInstance().update();
-		Audio::AudioManager::getInstance().update();
 
 		if (UI::ScreenManager::getInstance().shouldCloseApplication()) {
 			break;
 		}
 
-		Logger::setCrashContext("main loop: ScreenManager::render");
 		UI::ScreenManager::getInstance().render();
 	}
 
-	Logger::setCrashContext("shutdown: begin");
-	Logger::log("TriCord - Shutting down...");
+	// Its destructor would otherwise run after socExit and ndspExit.
+	Discord::VoiceClient::getInstance().disconnect();
 
-	// 1. Shutdown background threads and network services first
 	// The update-check thread has its own HttpClient (capped at HTTP_TIMEOUT_SECONDS by
 	// curl) outside NetworkManager's worker pool -- it must be joined before socExit()
 	// below, or it can still be mid-recvfrom() when the SOC service is torn down.
@@ -95,17 +89,14 @@ int main(int argc, char **argv) {
 		threadJoin(updateThread, U64_MAX);
 		threadFree(updateThread);
 	}
-	Discord::DiscordClient::getInstance().shutdown();
-	Discord::VoiceClient::getInstance().shutdown();
+
+	// Network first: its workers run callbacks into everything below.
 	Network::NetworkManager::getInstance().shutdown();
-	
-	// 2. Shutdown UI (now safe from background callbacks)
+	Discord::DiscordClient::getInstance().shutdown();
 	UI::ScreenManager::getInstance().shutdown();
 	UI::ImageManager::getInstance().shutdown();
-	
-	// 3. Shutdown hardware managers
-	Audio::AudioManager::getInstance().shutdown();
-
+	Utils::SoundPlayer::getInstance().shutdown();
+	ndspExit();
 	psExit();
 	romfsExit();
 	C2D_Fini();
@@ -117,7 +108,5 @@ int main(int argc, char **argv) {
 		free(soc_sharedmem_ptr);
 	}
 
-	Logger::log("TriCord - Shutdown complete");
-	Logger::shutdown();
 	return 0;
 }

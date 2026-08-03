@@ -1,9 +1,7 @@
 #include "discord/remote_auth.h"
-#include "core/config.h"
 #include "core/i18n.h"
 #include "log.h"
 #include "utils/base64_utils.h"
-#include "utils/file_utils.h"
 #include "utils/json_utils.h"
 #include <3ds.h>
 #include <sys/stat.h>
@@ -26,7 +24,9 @@ RemoteAuth::RemoteAuth()
 
 RemoteAuth::~RemoteAuth() {
 	cancel();
-	joinWorkerThread();
+	if (workerThread.joinable()) {
+		workerThread.join();
+	}
 	cleanupRSA();
 }
 
@@ -41,12 +41,12 @@ bool RemoteAuth::start() {
 	fingerprint = "";
 	ticket = "";
 
-	if (initSuccess.load()) {
+	if (initSuccess) {
 		Logger::log("[RemoteAuth] Keys already generated, proceeding to connect");
 		setState(RemoteAuthState::CONNECTING, Core::I18n::getInstance().get("login.status.connecting_auth"));
 	}
 
-	if (!initSuccess.load()) {
+	if (!initSuccess) {
 		setState(RemoteAuthState::CONNECTING, Core::I18n::getInstance().get("login.status.generating_keys"));
 		prepare();
 	} else {
@@ -57,17 +57,20 @@ bool RemoteAuth::start() {
 }
 
 void RemoteAuth::prepare() {
-	if (isInitializing.load()) {
-		Logger::log("[RemoteAuth] Setup already in progress, not restarting init thread");
+	if (isInitializing) {
+		Logger::log("[RemoteAuth] Setup already in progress");
 		return;
 	}
 
 	Logger::log("[RemoteAuth] Preparing RSA keys (Background)...");
-	joinWorkerThread();
 	isInitializing = true;
 	initSuccess = false;
 
-	workerThread = std::thread([this]() { runInit(); });
+	if (workerThread.joinable()) {
+		workerThread.join();
+	}
+
+	workerThread.start([this] { runInit(); }, 2);
 }
 
 void RemoteAuth::runInit() {
@@ -93,9 +96,6 @@ void RemoteAuth::cancel() {
 	}
 
 	Logger::log("[RemoteAuth] cancel() calling ws.disconnect()");
-	ws.setOnMessage({});
-	ws.setOnError({});
-	ws.setOnClose({});
 	ws.disconnect();
 	Logger::log("[RemoteAuth] cancel() ws.disconnect() completed");
 
@@ -108,12 +108,9 @@ void RemoteAuth::cancel() {
 
 void RemoteAuth::poll() {
 	ws.poll();
-	if (!isInitializing.load()) {
-		joinWorkerThread();
-	}
 
-	if (state == RemoteAuthState::CONNECTING && !isInitializing.load()) {
-		if (!initSuccess.load()) {
+	if (state == RemoteAuthState::CONNECTING && !isInitializing) {
+		if (!initSuccess) {
 			setState(RemoteAuthState::FAILED, Core::I18n::getInstance().get("login.status.init_rsa_failed"));
 			return;
 		}
@@ -149,7 +146,6 @@ void RemoteAuth::poll() {
 		}
 	}
 
-	// Auto-retry if failed or cancelled
 	if (state == RemoteAuthState::FAILED || state == RemoteAuthState::CANCELLED) {
 		uint64_t now = osGetTime();
 		if (now - lastRetryTime >= retryDelay) {
@@ -295,12 +291,6 @@ void RemoteAuth::setState(RemoteAuthState newState, const std::string &info) {
 	state = newState;
 	if (onStateChange) {
 		onStateChange(state, info);
-	}
-}
-
-void RemoteAuth::joinWorkerThread() {
-	if (workerThread.joinable() && workerThread.get_id() != std::this_thread::get_id()) {
-		workerThread.join();
 	}
 }
 

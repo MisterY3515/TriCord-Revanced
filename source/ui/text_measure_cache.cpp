@@ -1,6 +1,5 @@
 #include "ui/text_measure_cache.h"
 #include "ui/screen_manager.h"
-#include <algorithm>
 
 namespace UI {
 
@@ -31,10 +30,16 @@ float TextMeasureCache::measureText(const std::string &text, float scaleX, float
 
 		cache[key] = width;
 
-		// Simple LRU: if cache is too large, clear it
-		// (A proper LRU would track access order, but this is simpler)
 		if (cache.size() > MAX_CACHE_SIZE) {
-			cache.clear();
+			bool drop = false;
+			for (auto it = cache.begin(); it != cache.end();) {
+				if (drop) {
+					it = cache.erase(it);
+				} else {
+					++it;
+				}
+				drop = !drop;
+			}
 			cacheHits = 0;
 			cacheMisses = 0;
 		}

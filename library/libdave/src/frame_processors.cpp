@@ -15,12 +15,6 @@
 #include <intrin.h>
 #endif
 
-// OutboundFrameProcessor::ProcessFrame's codec switch below only keeps the
-// Opus case: TriCord is audio-only (3DS has no video call support), see
-// dave_interfaces.h's Codec enum trim. The unencrypted-ranges parsing/
-// validation above this point (security-critical, TOB-DISCE2EC-7) is
-// unchanged from upstream.
-
 namespace discord {
 namespace dave {
 
@@ -338,6 +332,21 @@ void OutboundFrameProcessor::ProcessFrame(ArrayView<const uint8_t> frame, Codec 
     switch (codec) {
     case Codec::Opus:
         success = codec_utils::ProcessFrameOpus(*this, frame);
+        break;
+    case Codec::VP8:
+        success = codec_utils::ProcessFrameVp8(*this, frame);
+        break;
+    case Codec::VP9:
+        success = codec_utils::ProcessFrameVp9(*this, frame);
+        break;
+    case Codec::H264:
+        success = codec_utils::ProcessFrameH264(*this, frame);
+        break;
+    case Codec::H265:
+        success = codec_utils::ProcessFrameH265(*this, frame);
+        break;
+    case Codec::AV1:
+        success = codec_utils::ProcessFrameAv1(*this, frame);
         break;
     default:
         assert(false && "Unsupported codec for frame encryption");

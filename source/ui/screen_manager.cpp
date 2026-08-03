@@ -2,32 +2,179 @@
 #include "core/config.h"
 #include "core/i18n.h"
 #include "discord/avatar_cache.h"
-#include "discord/discord_client.h"
 #include "discord/voice_client.h"
+#include "discord/discord_client.h"
 #include "log.h"
 #include "ui/about_screen.h"
 #include "ui/disclaimer_screen.h"
-#include "ui/dm_screen.h"
 #include "ui/emoji_manager.h"
 #include "ui/forum_screen.h"
 #include "ui/image_manager.h"
 #include "ui/login_screen.h"
 #include "ui/message_screen.h"
+#include "ui/modal_screen.h"
 #include "ui/server_list_screen.h"
 #include "ui/settings_screen.h"
 #include "ui/text_measure_cache.h"
 #include "ui/theme_manager_screen.h"
-#include "ui/voice_screen.h"
-#include "ui/modal_screen.h"
-#include "utils/message_utils.h"
 #include "utils/utf8_utils.h"
+#include <algorithm>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
+#include <unordered_map>
 
 namespace UI {
 
 static C2D_TextBuf textBuf = nullptr;
 static C2D_TextBuf debugTextBuf = nullptr;
 static C2D_TextBuf layoutTextBuf = nullptr;
+
+static constexpr CFG_Region FALLBACK_REGIONS[] = {CFG_REGION_CHN, CFG_REGION_TWN, CFG_REGION_KOR, CFG_REGION_JPN};
+static constexpr int NUM_FALLBACK_FONTS = sizeof(FALLBACK_REGIONS) / sizeof(FALLBACK_REGIONS[0]);
+
+// Visually tuned on hardware
+static constexpr float FALLBACK_DESIGN_SCALE = 0.90f;
+static constexpr float FALLBACK_BASELINE_TWEAK = -2.4f;
+
+static C2D_Font fallbackFonts[NUM_FALLBACK_FONTS] = {};
+static bool fallbackFontTried[NUM_FALLBACK_FONTS] = {};
+static int systemFontSlot = -1;
+static std::unordered_map<uint32_t, C2D_Font> glyphFontCache;
+
+static bool fontHasGlyph(C2D_Font font, uint32_t cp) {
+	return C2D_FontGlyphIndexFromCodePoint(font, cp) != (int)C2D_FontGetInfo(font)->alterCharIndex;
+}
+
+static bool isHangul(uint32_t cp) {
+	return (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3130 && cp <= 0x318F) || (cp >= 0xAC00 && cp <= 0xD7AF);
+}
+
+static int querySystemFontSlot() {
+	u8 region = CFG_REGION_JPN;
+	if (R_SUCCEEDED(cfguInit())) {
+		CFGU_SecureInfoGetRegion(&region);
+		cfguExit();
+	}
+	switch (region) {
+	case CFG_REGION_CHN:
+		return 0;
+	case CFG_REGION_TWN:
+		return 1;
+	case CFG_REGION_KOR:
+		return 2;
+	default:
+		return 3;
+	}
+}
+
+static float fallbackFontScale(C2D_Font font) { return font ? FALLBACK_DESIGN_SCALE : 1.0f; }
+
+static float fallbackBaselineOffset(C2D_Font font, float scaleY, float scaleAdj) {
+	if (!font) {
+		return 0.0f;
+	}
+	TGLP_s *sysTglp = C2D_FontGetInfo(nullptr)->tglp;
+	TGLP_s *fbTglp = C2D_FontGetInfo(font)->tglp;
+	if (!sysTglp || !fbTglp) {
+		return 0.0f;
+	}
+	return scaleY * ((float)sysTglp->baselinePos - scaleAdj * (float)fbTglp->baselinePos + FALLBACK_BASELINE_TWEAK);
+}
+
+static void loadFallbackFont(int slot) {
+	fallbackFontTried[slot] = true;
+	// C2D_FontLoadSystem requires cfgu to be initialized
+	if (R_SUCCEEDED(cfguInit())) {
+		fallbackFonts[slot] = C2D_FontLoadSystem(FALLBACK_REGIONS[slot]);
+		cfguExit();
+	}
+	Logger::log("[UI] Fallback font region %d: %s", (int)FALLBACK_REGIONS[slot],
+	            fallbackFonts[slot] ? "loaded" : "unavailable");
+}
+
+static C2D_Font glyphFallbackFont(uint32_t cp) {
+	if (cp < 0x1100 || cp > 0xFAFF) {
+		return nullptr;
+	}
+
+	auto cached = glyphFontCache.find(cp);
+	if (cached != glyphFontCache.end()) {
+		return cached->second;
+	}
+
+	C2D_Font result = nullptr;
+	if (!fontHasGlyph(nullptr, cp)) {
+		if (systemFontSlot < 0) {
+			systemFontSlot = querySystemFontSlot();
+		}
+
+		static const int hangulOrder[] = {2, 0, 1, 3};
+		static const int cjkOrder[] = {0, 1, 3, 2};
+		const int *order = isHangul(cp) ? hangulOrder : cjkOrder;
+
+		for (int i = 0; i < NUM_FALLBACK_FONTS; i++) {
+			int slot = order[i];
+			if (slot == systemFontSlot) {
+				continue;
+			}
+			if (!fallbackFontTried[slot]) {
+				loadFallbackFont(slot);
+			}
+			if (fallbackFonts[slot] && fontHasGlyph(fallbackFonts[slot], cp)) {
+				result = fallbackFonts[slot];
+				break;
+			}
+		}
+	}
+
+	glyphFontCache[cp] = result;
+	return result;
+}
+
+static bool needsFontFallback(const std::string &text) {
+	size_t cursor = 0;
+	while (cursor < text.length() && static_cast<unsigned char>(text[cursor]) < 0x80) {
+		cursor++;
+	}
+	while (cursor < text.length()) {
+		if (glyphFallbackFont(Utils::Utf8::decodeNext(text, cursor))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+template <typename OnRun, typename OnLineBreak>
+static void splitFontRuns(const std::string &text, OnRun onRun, OnLineBreak onLineBreak) {
+	std::string run;
+	C2D_Font runFont = nullptr;
+
+	auto flush = [&]() {
+		if (!run.empty()) {
+			onRun(run, runFont);
+			run.clear();
+		}
+	};
+
+	size_t cursor = 0;
+	while (cursor < text.length()) {
+		size_t start = cursor;
+		uint32_t cp = Utils::Utf8::decodeNext(text, cursor);
+		if (cp == '\n') {
+			flush();
+			onLineBreak();
+			continue;
+		}
+		C2D_Font font = glyphFallbackFont(cp);
+		if (font != runFont) {
+			flush();
+			runFont = font;
+		}
+		run.append(text, start, cursor - start);
+	}
+	flush();
+}
 
 Screen::Screen() : exitRequested(false) {}
 
@@ -83,6 +230,15 @@ void ScreenManager::shutdown() {
 		layoutTextBuf = nullptr;
 	}
 
+	glyphFontCache.clear();
+	for (int i = 0; i < NUM_FALLBACK_FONTS; i++) {
+		if (fallbackFonts[i]) {
+			C2D_FontFree(fallbackFonts[i]);
+			fallbackFonts[i] = nullptr;
+		}
+		fallbackFontTried[i] = false;
+	}
+
 	Logger::log("[UI] Screen manager shutdown");
 }
 
@@ -92,7 +248,7 @@ void ScreenManager::setScreen(ScreenType type) {
 	}
 
 	if (type == ScreenType::LOGIN || type == ScreenType::GUILD_LIST || type == ScreenType::ADD_ACCOUNT ||
-	    type == ScreenType::DM_LIST || type == ScreenType::DISCLAIMER) {
+	    type == ScreenType::DISCLAIMER) {
 		screenHistory.clear();
 	}
 
@@ -144,7 +300,7 @@ void ScreenManager::setScreen(ScreenType type) {
 		break;
 	case ScreenType::FORUM_CHANNEL: {
 		auto &client = Discord::DiscordClient::getInstance();
-		std::string channelId = client.getSelectedChannelId();
+		std::string channelId = forumChannelId;
 		std::string channelName = TR("common.forum");
 		for (const auto &g : client.getGuilds()) {
 			for (const auto &ch : g.channels) {
@@ -160,9 +316,6 @@ void ScreenManager::setScreen(ScreenType type) {
 	case ScreenType::SETTINGS:
 		currentScreen = std::make_unique<SettingsScreen>();
 		break;
-	case ScreenType::DM_LIST:
-		currentScreen = std::make_unique<DmScreen>();
-		break;
 	case ScreenType::ABOUT:
 		currentScreen = std::make_unique<AboutScreen>();
 		break;
@@ -171,9 +324,6 @@ void ScreenManager::setScreen(ScreenType type) {
 		break;
 	case ScreenType::THEME_MANAGER:
 		currentScreen = std::make_unique<ThemeManagerScreen>();
-		break;
-	case ScreenType::VOICE_CALL:
-		currentScreen = std::make_unique<VoiceScreen>();
 		break;
 	}
 
@@ -218,9 +368,14 @@ void ScreenManager::pop() {
 	returnToPreviousScreen();
 }
 
-void ScreenManager::showModal(const std::string& title, const std::string& desc,
-                              const std::vector<std::string>& buttons, std::function<void(int)> onButton) {
+void ScreenManager::showModal(const std::string &title, const std::string &desc,
+                              const std::vector<std::string> &buttons, std::function<void(int)> onButton) {
 	pushCustomScreen(std::make_unique<ModalScreen>(title, desc, buttons, onButton));
+}
+
+void ScreenManager::runOnMainThread(std::function<void()> task) {
+	std::lock_guard<std::mutex> lock(mainThreadTasksMutex);
+	mainThreadTasks.push_back(std::move(task));
 }
 
 void ScreenManager::update() {
@@ -240,6 +395,7 @@ void ScreenManager::update() {
 	ImageManager::getInstance().update();
 	EmojiManager::getInstance().update();
 	Discord::AvatarCache::getInstance().update();
+	Discord::VoiceClient::getInstance().update();
 
 	hamburgerMenu.update();
 
@@ -250,27 +406,27 @@ void ScreenManager::update() {
 	u32 kDown = hidKeysDown();
 	u32 kHeld = hidKeysHeld();
 
-	if ((kHeld & KEY_SELECT) && (kHeld & KEY_START) && (kDown & KEY_B)) {
+	if (kDown & KEY_START) {
 		appExitRequested = true;
 		return;
 	}
 
-	if ((kDown & KEY_START) && Discord::VoiceClient::getInstance().isInChannel()) {
-		static u64 lastStartPress = 0;
-		u64 now = osGetTime();
-		if (now - lastStartPress > 500) { // 500ms debounce
-			lastStartPress = now;
-			if (currentType == ScreenType::VOICE_CALL) {
-				returnToPreviousScreen();
-			} else {
-				pushScreen(ScreenType::VOICE_CALL);
-			}
+	bool callWasVisible = incomingCall.isVisible();
+	incomingCall.update();
+
+	bool shouldBlockScreen = !hamburgerMenu.isClosed() || callWasVisible || incomingCall.isVisible();
+
+	if (debugOverlayEnabled && (kHeld & KEY_L)) {
+		if (kHeld & (KEY_UP | KEY_CPAD_UP)) {
+			debugScrollOffset += 8.0f;
 		}
+		if (kHeld & (KEY_DOWN | KEY_CPAD_DOWN)) {
+			debugScrollOffset -= 8.0f;
+		}
+		shouldBlockScreen = true;
 	}
 
-	bool shouldBlockScreen = !hamburgerMenu.isClosed();
-
-	if (!isMenuHidden()) {
+	if (!isMenuHidden() && !callWasVisible) {
 		touchPosition touch;
 		hidTouchRead(&touch);
 		if (kDown & KEY_TOUCH) {
@@ -298,37 +454,8 @@ void ScreenManager::update() {
 	if ((kHeld & KEY_L) && (kDown & KEY_R)) {
 		toggleDebugOverlay();
 		Logger::log("Debug overlay toggled: %s", debugOverlayEnabled ? "ON" : "OFF");
-	} else if ((kHeld & KEY_L) && (kDown & KEY_B)) {
-		auto &vc = Discord::VoiceClient::getInstance();
-		if (vc.isInChannel()) {
-			vc.leaveChannel();
-			showToast("Left voice channel");
-		}
-	} else if (kDown & KEY_X) { // Changed back to KEY_X as requested
-		auto &vc = Discord::VoiceClient::getInstance();
-		if (vc.isInChannel() && currentType != ScreenType::VOICE_CALL) {
-			vc.setMuted(!vc.isMuted());
-			showToast(vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
-		}
-	}
-
-	// Touch controls for Voice Overlay - Only if not in Voice Screen
-	if ((kDown & KEY_TOUCH) && Discord::VoiceClient::getInstance().isInChannel() && currentType != ScreenType::VOICE_CALL) {
-		touchPosition touch;
-		hidTouchRead(&touch);
-		if (touch.py >= BOTTOM_SCREEN_HEIGHT - 22.0f) {
-			if (touch.px < BOTTOM_SCREEN_WIDTH / 2) {
-				auto &vc = Discord::VoiceClient::getInstance();
-				vc.setMuted(!vc.isMuted());
-				showToast(vc.isMuted() ? TR("common.muted") : TR("common.unmuted"));
-			} else {
-				auto &vc = Discord::VoiceClient::getInstance();
-				vc.leaveChannel();
-				showToast("Left voice channel");
-			}
-			// Block touch from reaching the current screen
-			return;
-		}
+	} else if ((kHeld & KEY_R) && (kDown & KEY_L)) {
+		toggleStatsOverlay();
 	}
 
 	if (toastTimer > 0) {
@@ -361,6 +488,10 @@ void ScreenManager::render() {
 		renderDebugOverlay();
 	}
 
+	if (statsOverlayEnabled) {
+		renderStatsOverlay();
+	}
+
 	C2D_TargetClear(bottomTarget, colorBackground());
 	C2D_SceneBegin(bottomTarget);
 
@@ -372,119 +503,156 @@ void ScreenManager::render() {
 		drawHamburgerButton();
 	}
 
-	renderConnectionIndicator();
-
 	if (toastTimer > 0) {
 		drawToast();
 	}
 
-	if (Discord::VoiceClient::getInstance().isInChannel() && currentType != ScreenType::VOICE_CALL) {
-		renderVoiceOverlay();
-	}
+	incomingCall.render();
 
 	C3D_FrameEnd(0);
 }
 
-void ScreenManager::renderVoiceOverlay() {
-	auto &vc = Discord::VoiceClient::getInstance();
-	
-	// Draw a persistent bar at the very bottom
-	float barH = 22.0f;
-	float barY = BOTTOM_SCREEN_HEIGHT - barH;
-	
-	// Split in two buttons
-	u32 muteColor = vc.isMuted() ? C2D_Color32(200, 60, 60, 255) : colorAccent();
-	u32 leaveColor = C2D_Color32(200, 60, 60, 255);
-	
-	float halfW = BOTTOM_SCREEN_WIDTH / 2.0f;
-	
-	// Mute Button (Left)
-	C2D_DrawRectSolid(0.0f, barY, 0.9f, halfW, barH, muteColor);
-	C2D_DrawRectSolid(0.0f, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
-	
-	std::string muteStr = vc.isMuted() ? "\uE002 Unmute" : "\uE002 Mute"; // \uE002 is X
-	C2D_Text mText;
-	C2D_TextParse(&mText, textBuf, muteStr.c_str());
-	C2D_TextOptimize(&mText);
-	float mw, mh;
-	C2D_TextGetDimensions(&mText, 0.45f, 0.45f, &mw, &mh);
-	C2D_DrawText(&mText, C2D_WithColor, (halfW - mw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255));
-	
-	// Leave Button (Right)
-	C2D_DrawRectSolid(halfW, barY, 0.9f, halfW, barH, leaveColor);
-	C2D_DrawRectSolid(halfW, barY, 0.91f, halfW, 1.0f, C2D_Color32(255, 255, 255, 100)); // highlight
-	
-	std::string leaveStr = "\uE004+\uE001 Leave Call"; // \uE004 is L, \uE001 is B
-	C2D_Text lText;
-	C2D_TextParse(&lText, textBuf, leaveStr.c_str());
-	C2D_TextOptimize(&lText);
-	float lw, lh;
-	C2D_TextGetDimensions(&lText, 0.45f, 0.45f, &lw, &lh);
-	C2D_DrawText(&lText, C2D_WithColor, halfW + (halfW - lw) / 2.0f, barY + 3.0f, 0.95f, 0.45f, 0.45f, C2D_Color32(255, 255, 255, 255));
-	
-	// Separator
-	C2D_DrawRectSolid(halfW, barY, 0.92f, 1.0f, barH, C2D_Color32(0, 0, 0, 100));
+void ScreenManager::toggleDebugOverlay() {
+	debugOverlayEnabled = !debugOverlayEnabled;
+	debugScrollOffset = 0.0f;
 }
-
-void ScreenManager::renderConnectionIndicator() {
-	auto state = Discord::DiscordClient::getInstance().getState();
-	bool isError = (state == Discord::ConnectionState::DISCONNECTED_ERROR);
-	u8 wifiStrength = osGetWifiStrength(); // Returns 0 to 3
-	
-	// Draw connection bars on top-right of bottom screen
-	float startX = 297.0f;
-	float startY = 20.0f;
-	float barWidth = 3.0f;
-	float spacing = 2.0f;
-	
-	u32 activeColor = C2D_Color32(0, 255, 0, 255);
-	if (wifiStrength <= 1) activeColor = C2D_Color32(255, 200, 0, 255);
-	if (wifiStrength == 0) activeColor = C2D_Color32(255, 0, 0, 255);
-	
-	u32 inactiveColor = C2D_Color32(100, 100, 100, 255);
-	
-	for (int i = 0; i < 3; i++) {
-		float barHeight = 6.0f + (i * 4.0f);
-		float bx = startX + (i * (barWidth + spacing));
-		float by = startY - barHeight;
-		
-		bool fill = (i < wifiStrength);
-		
-		C2D_DrawRectSolid(bx, by, 0.9f, barWidth, barHeight, fill ? activeColor : inactiveColor);
-	}
-	
-	// Full screen error overlay if disconnected/error
-	if (isError) {
-		C2D_DrawRectSolid(0, 0, 0.95f, 320, 240, C2D_Color32(0, 0, 0, 230)); // Dark overlay
-		auto& i18n = Core::I18n::getInstance();
-		std::string errText = i18n.get("connection.no_network");
-		
-		C2D_TextBuf buf = C2D_TextBufNew(256);
-		C2D_Text text;
-		C2D_TextParse(&text, buf, errText.c_str());
-		C2D_TextOptimize(&text);
-		C2D_DrawText(&text, C2D_WithColor | C2D_AlignCenter, 160.0f, 110.0f, 0.96f, 0.6f, 0.6f, C2D_Color32(255, 50, 50, 255));
-		C2D_TextBufDelete(buf);
-	}
-}
-
-void ScreenManager::toggleDebugOverlay() { debugOverlayEnabled = !debugOverlayEnabled; }
 
 void ScreenManager::renderDebugOverlay() {
 	std::vector<std::string> logs = Logger::getRecentLogs();
-	float y = 5.0f;
+	float topMargin = 5.0f;
 	float lineHeight = 10.0f;
+	float viewHeight = 240.0f - topMargin;
+	float maxScroll = std::max(0.0f, logs.size() * lineHeight - viewHeight);
+	debugScrollOffset = std::clamp(debugScrollOffset, 0.0f, maxScroll);
 
-	for (const auto &line : logs) {
-		if (y + lineHeight > 240) {
+	float yStart = topMargin - (maxScroll - debugScrollOffset);
+
+	for (size_t i = 0; i < logs.size(); i++) {
+		float y = yStart + i * lineHeight;
+		if (y + lineHeight <= 0.0f) {
+			continue;
+		}
+		if (y > 240.0f) {
 			break;
 		}
 
 		C2D_Text text;
-		C2D_TextParse(&text, debugTextBuf, line.c_str());
+		if (!C2D_TextParse(&text, debugTextBuf, logs[i].c_str())) {
+			break;
+		}
 		C2D_TextOptimize(&text);
 		C2D_DrawText(&text, C2D_WithColor, 5.0f, y, 1.0f, 0.4f, 0.4f, C2D_Color32(0, 255, 0, 255));
+	}
+}
 
+void ScreenManager::toggleStatsOverlay() {
+	statsOverlayEnabled = !statsOverlayEnabled;
+	statsFrames = 0;
+	statsWindowStart = osGetTime();
+	statsFps = 0.0f;
+	statsFrameMs = 0.0f;
+}
+
+void ScreenManager::renderStatsOverlay() {
+	statsFrames++;
+	uint64_t now = osGetTime();
+	uint64_t elapsed = now - statsWindowStart;
+	if (elapsed >= 500) {
+		statsFps = (float)statsFrames * 1000.0f / (float)elapsed;
+		statsFrameMs = (float)elapsed / (float)statsFrames;
+		statsFrames = 0;
+		statsWindowStart = now;
+	}
+
+	auto &images = ImageManager::getInstance();
+	auto &emoji = EmojiManager::getInstance();
+	auto &config = Config::getInstance();
+	auto &client = Discord::DiscordClient::getInstance();
+	auto &voice = Discord::VoiceClient::getInstance();
+
+	size_t netR = 0, netI = 0, netB = 0;
+	Network::NetworkManager::getInstance().getQueueDepths(netR, netI, netB);
+
+	static const char *const GW_NAMES[] = {"OFF", "CONN", "WS", "IDENT", "AUTH", "READY", "RECON", "ERR"};
+	int gwState = (int)client.getState();
+	const char *gwName = (gwState >= 0 && gwState < 8) ? GW_NAMES[gwState] : "?";
+
+	static const char *const VC_NAMES[] = {"OFF", "WAIT", "CONN", "IDENT", "READY", "PROTO", "ON", "FAIL"};
+	int vcState = (int)voice.getState();
+	const char *vcName = (vcState >= 0 && vcState < 8) ? VC_NAMES[vcState] : "?";
+
+	size_t linFree = linearSpaceFree();
+	size_t imgBytes = images.getCacheBytes();
+
+	struct Line {
+		char text[44];
+		u32 color;
+	};
+	Line lines[12];
+	int n = 0;
+
+	const u32 kOk = C2D_Color32(120, 255, 160, 255);
+	const u32 kDim = C2D_Color32(150, 150, 150, 255);
+	const u32 kWarn = C2D_Color32(255, 200, 80, 255);
+	const u32 kBad = C2D_Color32(255, 110, 110, 255);
+
+	auto add = [&](u32 color, const char *fmt, ...) {
+		if (n >= (int)(sizeof(lines) / sizeof(lines[0]))) {
+			return;
+		}
+		va_list args;
+		va_start(args, fmt);
+		vsnprintf(lines[n].text, sizeof(lines[0].text), fmt, args);
+		va_end(args);
+		lines[n].color = color;
+		n++;
+	};
+
+	add(statsFps < 50.0f ? kWarn : kOk, "FPS %.1f  GPU %.1f/%.1f", statsFps, C3D_GetProcessingTime(),
+	    C3D_GetDrawingTime());
+	add(linFree < 4u * 1024 * 1024 ? kBad : (linFree < 8u * 1024 * 1024 ? kWarn : kOk), "LIN %luK  APP %luK",
+	    (unsigned long)(linFree / 1024), (unsigned long)(osGetMemRegionFree(MEMREGION_APPLICATION) / 1024));
+	add(imgBytes >= ImageManager::getCacheBudget() ? kWarn : kOk, "IMG %luK/%luK x%lu",
+	    (unsigned long)(imgBytes / 1024), (unsigned long)(ImageManager::getCacheBudget() / 1024),
+	    (unsigned long)images.getCacheCount());
+	add(kOk, "EMO %lu/%lu  AVA %lu", (unsigned long)emoji.getTwemojiCount(), (unsigned long)emoji.getCustomCount(),
+	    (unsigned long)Discord::AvatarCache::getInstance().getCacheCount());
+	add(kOk, "TXT %lu  GLD %lu", (unsigned long)TextMeasureCache::getInstance().getCacheSize(),
+	    (unsigned long)client.getGuilds().size());
+	add((netR + netI + netB) > 16 ? kWarn : kDim, "NET r%lu i%lu b%lu", (unsigned long)netR, (unsigned long)netI,
+	    (unsigned long)netB);
+
+	add(gwState == (int)Discord::ConnectionState::READY ? kOk : kWarn, "GW %s  WIFI %d", gwName,
+	    (int)osGetWifiStrength());
+	add(vcState == (int)Discord::VoiceState::ESTABLISHED ? kOk : kDim, "VC %s%s%s", vcName, voice.isMuted() ? " M" : "",
+	    voice.isDeafened() ? " D" : "");
+
+	int extraThreads = Utils::WorkerThread::extraCoreThreads();
+	add(extraThreads > 0 ? kOk : kDim, "N3DS %s  CORE2 %d thr",
+	    Utils::WorkerThread::extraCoreAvailable() ? "yes" : "no", extraThreads);
+	add(kDim, "AVATAR %s  TYPE %s", config.isShowAvatarsEnabled() ? "on" : "off",
+	    config.isTypingIndicatorEnabled() ? "on" : "off");
+	add(config.isSslVerificationDisabled() ? kBad : kDim, "SSL %s  FLOG %s",
+	    config.isSslVerificationDisabled() ? "OFF" : "on", config.isFileLoggingEnabled() ? "on" : "off");
+
+	const float scale = 0.4f;
+	const float lineHeight = 10.0f;
+	const float pad = 3.0f;
+	const float right = 400.0f;
+
+	float boxW = 0.0f;
+	for (int i = 0; i < n; i++) {
+		boxW = std::max(boxW, measureText(lines[i].text, scale, scale));
+	}
+	boxW += pad * 2.0f;
+	float boxH = n * lineHeight + pad * 2.0f;
+	float boxX = right - boxW;
+
+	C2D_DrawRectSolid(boxX, 0.0f, 1.0f, boxW, boxH, C2D_Color32(0, 0, 0, 200));
+
+	float y = pad;
+	for (int i = 0; i < n; i++) {
+		drawText(boxX + pad, y, 1.0f, scale, scale, lines[i].color, lines[i].text);
 		y += lineHeight;
 	}
 }
@@ -527,11 +695,6 @@ void ScreenManager::drawHamburgerButton() {
 void ScreenManager::showToast(const std::string &message) {
 	toastMessage = message;
 	toastTimer = 120;
-}
-
-void ScreenManager::runOnMainThread(std::function<void()> task) {
-	std::lock_guard<std::mutex> lock(mainThreadTasksMutex);
-	mainThreadTasks.push_back(std::move(task));
 }
 
 bool ScreenManager::isMenuHidden() const {
@@ -578,29 +741,50 @@ void drawText(float x, float y, float z, float scaleX, float scaleY, u32 color, 
 		return;
 	}
 
-	C2D_Text c2dText;
-	C2D_TextParse(&c2dText, textBuf, text.c_str());
-	C2D_TextOptimize(&c2dText);
-	C2D_DrawText(&c2dText, C2D_WithColor, x, y, z, scaleX, scaleY, color);
+	if (!needsFontFallback(text)) {
+		C2D_Text c2dText;
+		if (!C2D_TextParse(&c2dText, textBuf, text.c_str())) {
+			return;
+		}
+		C2D_TextOptimize(&c2dText);
+		C2D_DrawText(&c2dText, C2D_WithColor, x, y, z, scaleX, scaleY, color);
+		return;
+	}
+
+	float lineFeed = C2D_FontGetInfo(nullptr)->lineFeed * scaleY;
+	float curX = x;
+	float curY = y;
+
+	splitFontRuns(
+	    text,
+	    [&](const std::string &run, C2D_Font font) {
+		    C2D_Text c2dText;
+		    if (!C2D_TextFontParse(&c2dText, font, textBuf, run.c_str())) {
+			    return;
+		    }
+		    C2D_TextOptimize(&c2dText);
+		    float scaleAdj = fallbackFontScale(font);
+		    float yOff = fallbackBaselineOffset(font, scaleY, scaleAdj);
+		    C2D_DrawText(&c2dText, C2D_WithColor, curX, curY + yOff, z, scaleX * scaleAdj, scaleY * scaleAdj, color);
+		    float width, height;
+		    C2D_TextGetDimensions(&c2dText, scaleX * scaleAdj, scaleY * scaleAdj, &width, &height);
+		    curX += width;
+	    },
+	    [&]() {
+		    curX = x;
+		    curY += lineFeed;
+	    });
 }
 
 void drawCenteredText(float y, float z, float scaleX, float scaleY, u32 color, const std::string &rawText,
                       float screenWidth) {
-	std::string text = Utils::Utf8::sanitizeText(rawText);
-
 	if (!textBuf) {
 		return;
 	}
 
-	C2D_Text c2dText;
-	C2D_TextParse(&c2dText, textBuf, text.c_str());
-	C2D_TextOptimize(&c2dText);
-
-	float width, height;
-	C2D_TextGetDimensions(&c2dText, scaleX, scaleY, &width, &height);
-
+	float width = measureText(rawText, scaleX, scaleY);
 	float x = (screenWidth - width) / 2.0f;
-	C2D_DrawText(&c2dText, C2D_WithColor, x, y, z, scaleX, scaleY, color);
+	drawText(x, y, z, scaleX, scaleY, color, rawText);
 }
 
 float measureTextDirect(const std::string &rawText, float scaleX, float scaleY) {
@@ -610,14 +794,42 @@ float measureTextDirect(const std::string &rawText, float scaleX, float scaleY) 
 		return 0.0f;
 	}
 
-	C2D_Text c2dText;
-	C2D_TextParse(&c2dText, layoutTextBuf, text.c_str());
+	if (!needsFontFallback(text)) {
+		C2D_Text c2dText;
+		if (!C2D_TextParse(&c2dText, layoutTextBuf, text.c_str())) {
+			C2D_TextBufClear(layoutTextBuf);
+			return 0.0f;
+		}
 
-	float width, height;
-	C2D_TextGetDimensions(&c2dText, scaleX, scaleY, &width, &height);
+		float width, height;
+		C2D_TextGetDimensions(&c2dText, scaleX, scaleY, &width, &height);
+
+		C2D_TextBufClear(layoutTextBuf);
+		return width;
+	}
+
+	float maxWidth = 0.0f;
+	float curX = 0.0f;
+
+	splitFontRuns(
+	    text,
+	    [&](const std::string &run, C2D_Font font) {
+		    C2D_Text c2dText;
+		    if (!C2D_TextFontParse(&c2dText, font, layoutTextBuf, run.c_str())) {
+			    return;
+		    }
+		    float scaleAdj = fallbackFontScale(font);
+		    float width, height;
+		    C2D_TextGetDimensions(&c2dText, scaleX * scaleAdj, scaleY * scaleAdj, &width, &height);
+		    curX += width;
+	    },
+	    [&]() {
+		    maxWidth = std::max(maxWidth, curX);
+		    curX = 0.0f;
+	    });
 
 	C2D_TextBufClear(layoutTextBuf);
-	return width;
+	return std::max(maxWidth, curX);
 }
 
 float measureText(const std::string &text, float scaleX, float scaleY) {
@@ -641,24 +853,41 @@ void drawRoundedRect(float x, float y, float z, float w, float h, float radius, 
 	C2D_DrawRectSolid(x, y + radius, z, radius, h - 2 * radius, color);
 	C2D_DrawRectSolid(x + w - radius, y + radius, z, radius, h - 2 * radius, color);
 
-	auto drawCorner = [&](float cx, float cy, float startAngle) {
-		const int segments = 8;
-		const float step = (M_PI / 2.0f) / segments;
-		for (int i = 0; i < segments; i++) {
-			float a1 = startAngle + i * step;
-			float a2 = startAngle + (i + 1) * step;
-			C2D_DrawTriangle(cx, cy, color, cx + radius * cos(a1), cy + radius * sin(a1), color, cx + radius * cos(a2),
-			                 cy + radius * sin(a2), color, z);
+	static float arcCos[33];
+	static float arcSin[33];
+	static bool arcInit = false;
+	if (!arcInit) {
+		for (int i = 0; i <= 32; i++) {
+			float a = (float)i * ((float)M_PI / 16.0f);
+			arcCos[i] = cosf(a);
+			arcSin[i] = sinf(a);
+		}
+		arcInit = true;
+	}
+
+	auto drawCorner = [&](float cx, float cy, int base) {
+		for (int i = 0; i < 8; i++) {
+			C2D_DrawTriangle(cx, cy, color, cx + radius * arcCos[base + i], cy + radius * arcSin[base + i], color,
+			                 cx + radius * arcCos[base + i + 1], cy + radius * arcSin[base + i + 1], color, z);
 		}
 	};
 
-	drawCorner(x + radius, y + radius, M_PI);
-	drawCorner(x + w - radius, y + radius, 3 * M_PI / 2);
+	drawCorner(x + radius, y + radius, 16);
+	drawCorner(x + w - radius, y + radius, 24);
 	drawCorner(x + w - radius, y + h - radius, 0);
-	drawCorner(x + radius, y + h - radius, M_PI / 2);
+	drawCorner(x + radius, y + h - radius, 8);
 }
 
 void drawCircle(float x, float y, float z, float radius, u32 color) { C2D_DrawCircleSolid(x, y, z, radius, color); }
+
+void drawScrollbar(float maxScroll, float currentScroll, float y, float viewHeight) {
+	if (maxScroll <= 0.0f) {
+		return;
+	}
+	float barHeight = std::max(10.0f, viewHeight * (viewHeight / (viewHeight + maxScroll)));
+	float barY = y + (currentScroll / maxScroll) * (viewHeight - barHeight);
+	C2D_DrawRectSolid(314.0f, barY, 0.41f, 3.0f, barHeight, ScreenManager::colorTextMuted());
+}
 
 void drawRichText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &text) {
 	if (!textBuf || text.empty()) {
@@ -712,31 +941,33 @@ void drawRichText(float x, float y, float z, float scaleX, float scaleY, u32 col
 			}
 		}
 
-		size_t tempCursor = cursor;
-		uint32_t codepoint = Utils::Utf8::decodeNext(text, tempCursor);
+		if (static_cast<unsigned char>(text[cursor]) >= 0x80) {
+			size_t tempCursor = cursor;
+			uint32_t codepoint = Utils::Utf8::decodeNext(text, tempCursor);
 
-		if (Utils::Utf8::isEmoji(codepoint)) {
-			size_t seqCursor = cursor;
-			std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
-			std::string hex = Utils::Utf8::utf8ToHex(sequence);
-			EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
-			float emojiSize = 28.0f * scaleY;
+			if (Utils::Utf8::isEmoji(codepoint)) {
+				size_t seqCursor = cursor;
+				std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
+				std::string hex = Utils::Utf8::utf8ToHex(sequence);
+				EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
+				float emojiSize = 28.0f * scaleY;
 
-			if (info.tex) {
-				float uMax = (float)info.originalW / info.tex->width;
-				float vMax = (float)info.originalH / info.tex->height;
-				Tex3DS_SubTexture subtex = {(u16)info.originalW, (u16)info.originalH, 0.0f, 1.0f, uMax, 1.0f - vMax};
-				const C2D_Image img = {info.tex, &subtex};
-				C2D_DrawImageAt(img, currentX, y + 1.0f, z, nullptr, emojiSize / info.originalW,
-				                emojiSize / info.originalH);
-				currentX += emojiSize + (2.0f * scaleX);
-				cursor = seqCursor;
-				continue;
-			} else {
-				drawText(currentX, y, z, scaleX, scaleY, color, sequence);
-				currentX += measureText(sequence, scaleX, scaleY);
-				cursor = seqCursor;
-				continue;
+				if (info.tex) {
+					float uMax = (float)info.originalW / info.tex->width;
+					float vMax = (float)info.originalH / info.tex->height;
+					Tex3DS_SubTexture subtex = {(u16)info.originalW, (u16)info.originalH, 0.0f, 1.0f, uMax, 1.0f - vMax};
+					const C2D_Image img = {info.tex, &subtex};
+					C2D_DrawImageAt(img, currentX, y + 1.0f, z, nullptr, emojiSize / info.originalW,
+					                emojiSize / info.originalH);
+					currentX += emojiSize + (2.0f * scaleX);
+					cursor = seqCursor;
+					continue;
+				} else {
+					drawText(currentX, y, z, scaleX, scaleY, color, sequence);
+					currentX += measureText(sequence, scaleX, scaleY);
+					cursor = seqCursor;
+					continue;
+				}
 			}
 		}
 
@@ -757,6 +988,10 @@ void drawRichText(float x, float y, float z, float scaleX, float scaleY, u32 col
 				}
 			}
 
+			if (static_cast<unsigned char>(text[end]) < 0x80) {
+				end++;
+				continue;
+			}
 			size_t nextC = end;
 			uint32_t cp = Utils::Utf8::decodeNext(text, nextC);
 			if (Utils::Utf8::isEmoji(cp)) {
@@ -816,22 +1051,27 @@ float measureRichTextImpl(const std::string &text, float scaleX, float scaleY, b
 			}
 		}
 
-		size_t tempCursor = cursor;
-		uint32_t codepoint = Utils::Utf8::decodeNext(text, tempCursor);
+		if (static_cast<unsigned char>(text[cursor]) >= 0x80) {
+			size_t tempCursor = cursor;
+			uint32_t codepoint = Utils::Utf8::decodeNext(text, tempCursor);
 
-		if (Utils::Utf8::isEmoji(codepoint)) {
-			size_t seqCursor = cursor;
-			std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
-			std::string hex = Utils::Utf8::utf8ToHex(sequence);
-			EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
-			float emojiSize = 28.0f * scaleY;
-			if (info.tex) {
-				currentX += emojiSize + (2.0f * scaleX);
-			} else {
-				currentX += measureText(sequence, scaleX, scaleY);
+			if (Utils::Utf8::isEmoji(codepoint)) {
+				size_t seqCursor = cursor;
+				std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
+				std::string hex = Utils::Utf8::utf8ToHex(sequence);
+				EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
+				float emojiSize = 28.0f * scaleY;
+				if (info.tex) {
+					currentX += emojiSize + (2.0f * scaleX);
+				} else {
+					currentX += measureText(sequence, scaleX, scaleY);
+				}
+				cursor = seqCursor;
+				continue;
 			}
-			cursor = seqCursor;
-		} else {
+		}
+
+		{
 			size_t end = cursor;
 			while (end < text.length()) {
 				if (!unicodeOnly && text[end] == '<') {
@@ -849,6 +1089,10 @@ float measureRichTextImpl(const std::string &text, float scaleX, float scaleY, b
 					}
 				}
 
+				if (static_cast<unsigned char>(text[end]) < 0x80) {
+					end++;
+					continue;
+				}
 				size_t nextC = end;
 				uint32_t cp = Utils::Utf8::decodeNext(text, nextC);
 				if (Utils::Utf8::isEmoji(cp)) {
@@ -970,38 +1214,47 @@ void drawRichTextUnicodeOnly(float x, float y, float z, float scaleX, float scal
 	float currentX = x;
 
 	while (cursor < text.length()) {
-		size_t tempCharCursor = cursor;
-		uint32_t firstCp = Utils::Utf8::decodeNext(text, tempCharCursor);
+		if (static_cast<unsigned char>(text[cursor]) >= 0x80) {
+			size_t tempCharCursor = cursor;
+			uint32_t firstCp = Utils::Utf8::decodeNext(text, tempCharCursor);
 
-		if (Utils::Utf8::isEmoji(firstCp)) {
-			size_t seqCursor = cursor;
-			std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
-			std::string hex = Utils::Utf8::utf8ToHex(sequence);
-			EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
-			float emojiSize = 28.0f * scaleY;
+			if (Utils::Utf8::isEmoji(firstCp)) {
+				size_t seqCursor = cursor;
+				std::string sequence = Utils::Utf8::getEmojiSequence(text, seqCursor);
+				std::string hex = Utils::Utf8::utf8ToHex(sequence);
+				EmojiManager::EmojiInfo info = EmojiManager::getInstance().getTwemojiInfo(hex);
+				float emojiSize = 28.0f * scaleY;
 
-			if (info.tex) {
-				Tex3DS_SubTexture subtex;
-				subtex.width = (u16)info.originalW;
-				subtex.height = (u16)info.originalH;
-				subtex.left = 0.0f;
-				subtex.top = 0.0f;
-				subtex.right = (float)info.originalW / info.tex->width;
-				subtex.bottom = (float)info.originalH / info.tex->height;
+				if (info.tex) {
+					Tex3DS_SubTexture subtex;
+					subtex.width = (u16)info.originalW;
+					subtex.height = (u16)info.originalH;
+					subtex.left = 0.0f;
+					subtex.top = 0.0f;
+					subtex.right = (float)info.originalW / info.tex->width;
+					subtex.bottom = (float)info.originalH / info.tex->height;
 
-				const C2D_Image img = {info.tex, &subtex};
-				C2D_DrawImageAt(img, currentX, y + 1.0f, z, nullptr, emojiSize / info.originalW,
-				                emojiSize / info.originalH);
-				currentX += emojiSize + (0.0f * scaleX);
-			} else {
-				std::string clean = Utils::Utf8::sanitizeText(sequence);
-				drawText(currentX, y, z, scaleX, scaleY, color, clean);
-				currentX += measureText(clean, scaleX, scaleY);
+					const C2D_Image img = {info.tex, &subtex};
+					C2D_DrawImageAt(img, currentX, y + 1.0f, z, nullptr, emojiSize / info.originalW,
+					                emojiSize / info.originalH);
+					currentX += emojiSize + (0.0f * scaleX);
+				} else {
+					std::string clean = Utils::Utf8::sanitizeText(sequence);
+					drawText(currentX, y, z, scaleX, scaleY, color, clean);
+					currentX += measureText(clean, scaleX, scaleY);
+				}
+				cursor = seqCursor;
+				continue;
 			}
-			cursor = seqCursor;
-		} else {
+		}
+
+		{
 			size_t end = cursor;
 			while (end < text.length()) {
+				if (static_cast<unsigned char>(text[end]) < 0x80) {
+					end++;
+					continue;
+				}
 				size_t nextC = end;
 				uint32_t cp = Utils::Utf8::decodeNext(text, nextC);
 				if (Utils::Utf8::isEmoji(cp)) {

@@ -208,9 +208,13 @@ LeafNode::verify(CipherSuite cipher_suite,
 {
   const auto tbs = to_be_signed(binding);
 
-  // Upstream's X509Credential-specific signature-algorithm cross-check is not
-  // applicable: this backend only supports CredentialType::basic (see
-  // mls/credential.h).
+  if (CredentialType::x509 == credential.type()) {
+    const auto& cred = credential.get<X509Credential>();
+    if (cred.signature_scheme() !=
+        tls_signature_scheme(cipher_suite.sig().id)) {
+      throw std::runtime_error("Signature algorithm invalid");
+    }
+  }
 
   return signature_key.verify(
     cipher_suite, sign_label::leaf_node, tbs, signature);
@@ -409,9 +413,13 @@ KeyPackage::verify() const
   // Verify the KeyPackage
   const auto tbs = to_be_signed();
 
-  // Upstream's X509Credential-specific signature-algorithm cross-check is not
-  // applicable: this backend only supports CredentialType::basic (see
-  // mls/credential.h).
+  if (CredentialType::x509 == leaf_node.credential.type()) {
+    const auto& cred = leaf_node.credential.get<X509Credential>();
+    if (cred.signature_scheme() !=
+        tls_signature_scheme(cipher_suite.sig().id)) {
+      throw std::runtime_error("Signature algorithm invalid");
+    }
+  }
 
   return leaf_node.signature_key.verify(
     cipher_suite, sign_label::key_package, tbs, signature);

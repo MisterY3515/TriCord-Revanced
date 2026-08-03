@@ -137,9 +137,25 @@ private:
   static const bytes& reference_label();
 };
 
-// Only P256_AES128GCM_SHA256_P256 (DAVE ciphersuite 2) is supported by this
-// backend -- see crypto.cpp's CipherSuite::get().
-static constexpr size_t n_supported_suites = 1;
+#if defined(WITH_BORINGSSL)
+static constexpr size_t n_supported_x448_suites = 0;
+#else
+static constexpr size_t n_supported_x448_suites = 2;
+#endif
+
+#if defined(WITH_PQ)
+static constexpr size_t n_supported_pq_suites = 3;
+#else
+static constexpr size_t n_supported_pq_suites = 0;
+#endif
+
+#if defined(WITH_MBEDTLS)
+// Only the NIST curves are available; DAVE uses ciphersuite 2 exclusively.
+static constexpr size_t n_supported_suites = 3;
+#else
+static constexpr size_t n_supported_suites =
+  5 + n_supported_x448_suites + n_supported_pq_suites;
+#endif
 extern const std::array<CipherSuite::ID, n_supported_suites>
   all_supported_cipher_suites;
 

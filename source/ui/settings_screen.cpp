@@ -1,8 +1,8 @@
 #include "ui/settings_screen.h"
 #include "core/config.h"
 #include "core/i18n.h"
-#include "core/log.h"
 #include "core/updater.h"
+#include "log.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"
 #include "discord/avatar_cache.h"
@@ -37,9 +37,10 @@ void SettingsScreen::onEnter() {
 	                 : (langCode == "de_DE") ? 5
 	                 : (langCode == "pl_PL") ? 6
 	                 : (langCode == "pt_BR") ? 7
+	                 : (langCode == "zh_CN") ? 8
 	                                         : 0;
 	language.min = 0;
-	language.max = 7;
+	language.max = 8;
 	language.valueFormatter = [](int val) {
 		if (val == 0) {
 			return "English";
@@ -65,6 +66,9 @@ void SettingsScreen::onEnter() {
 		if (val == 7) {
 			return "Português (Brasil)";
 		}
+		if (val == 8) {
+			return "简体中文";
+		}
 		return "English";
 	};
 	language.onUpdate = [this](int val) {
@@ -75,6 +79,7 @@ void SettingsScreen::onEnter() {
 		                      : (val == 5) ? "de_DE"
 		                      : (val == 6) ? "pl_PL"
 		                      : (val == 7) ? "pt_BR"
+		                      : (val == 8) ? "zh_CN"
 		                                   : "en_US";
 		Config::getInstance().setLanguage(newLang);
 		ScreenManager::getInstance().getHamburgerMenu().refreshStrings();
@@ -167,6 +172,17 @@ void SettingsScreen::onEnter() {
 	};
 	allItems.push_back(showIcons);
 
+	SettingItem hiddenChannels;
+	hiddenChannels.label = TR("settings.show_hidden_channels");
+	hiddenChannels.description = TR("settings.desc.show_hidden_channels");
+	hiddenChannels.type = SettingItemType::TOGGLE;
+	hiddenChannels.value = Config::getInstance().isShowHiddenChannelsEnabled() ? 1 : 0;
+	hiddenChannels.min = 0;
+	hiddenChannels.max = 1;
+	hiddenChannels.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	hiddenChannels.onUpdate = [](int val) { Config::getInstance().setShowHiddenChannelsEnabled(val == 1); };
+	allItems.push_back(hiddenChannels);
+
 	// CHAT
 	allItems.push_back({TR("settings.section.chat"), "", SettingItemType::SECTION_HEADER});
 
@@ -182,34 +198,24 @@ void SettingsScreen::onEnter() {
 	allItems.push_back(typing);
 
 	// VOICE
-	allItems.push_back({"Voice Chats", "", SettingItemType::SECTION_HEADER});
+	allItems.push_back({TR("settings.section.voice"), "", SettingItemType::SECTION_HEADER});
 
-	SettingItem voiceChats;
-	voiceChats.label = "Enable Voice Chats";
-	voiceChats.description = "Allow the client to connect to voice channels.";
-	voiceChats.type = SettingItemType::TOGGLE;
-	voiceChats.value = Config::getInstance().isVoiceChatsEnabled() ? 1 : 0;
-	voiceChats.min = 0;
-	voiceChats.max = 1;
-	voiceChats.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
-	voiceChats.onUpdate = [](int val) { Config::getInstance().setVoiceChatsEnabled(val == 1); };
-	allItems.push_back(voiceChats);
-
-	SettingItem daveE2ee;
-	daveE2ee.label = "Enable DAVE/MLS/E2EE";
-	daveE2ee.description = "Experimental: Advertise support for Discord's modern voice E2EE.";
-	daveE2ee.type = SettingItemType::TOGGLE;
-	daveE2ee.value = Config::getInstance().isDaveEnabled() ? 1 : 0;
-	daveE2ee.min = 0;
-	daveE2ee.max = 1;
-	daveE2ee.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
-	daveE2ee.onUpdate = [](int val) { Config::getInstance().setDaveEnabled(val == 1); };
-	allItems.push_back(daveE2ee);
+	SettingItem echoCancel;
+	echoCancel.label = TR("settings.echo_cancellation");
+	echoCancel.description = TR("settings.desc.echo_cancellation");
+	echoCancel.type = SettingItemType::TOGGLE;
+	echoCancel.value = Config::getInstance().isEchoCancellationEnabled() ? 1 : 0;
+	echoCancel.min = 0;
+	echoCancel.max = 1;
+	echoCancel.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
+	echoCancel.onUpdate = [](int val) { Config::getInstance().setEchoCancellationEnabled(val == 1); };
+	allItems.push_back(echoCancel);
 
 	// DEVELOPER
 	SettingItem devSection;
 	devSection.label = "Developer Options";
 	devSection.type = SettingItemType::SECTION_HEADER;
+	devSection.isDeveloper = true;
 	allItems.push_back(devSection);
 
 	SettingItem fileLogging;
@@ -221,10 +227,8 @@ void SettingsScreen::onEnter() {
 	fileLogging.max = 1;
 	fileLogging.valueFormatter = [](int val) { return (val == 1) ? TR("common.enabled") : TR("common.disabled"); };
 	fileLogging.onUpdate = [](int val) { Config::getInstance().setFileLoggingEnabled(val == 1); };
+	fileLogging.isDeveloper = true;
 	allItems.push_back(fileLogging);
-
-	// ADVANCED
-	allItems.push_back({TR("settings.section.advanced"), "", SettingItemType::SECTION_HEADER});
 
 	SettingItem sslVerify;
 	sslVerify.label = "SSL Verification";
@@ -235,6 +239,7 @@ void SettingsScreen::onEnter() {
 	sslVerify.max = 1;
 	sslVerify.valueFormatter = [](int val) { return (val == 0) ? TR("common.disabled") : TR("common.enabled"); };
 	sslVerify.onUpdate = [](int val) { Config::getInstance().setSslVerificationDisabled(val == 0); };
+	sslVerify.isDeveloper = true;
 	allItems.push_back(sslVerify);
 
 	// UPDATES
@@ -246,7 +251,6 @@ void SettingsScreen::onEnter() {
 	checkForUpdates.type = SettingItemType::ACTION;
 	checkForUpdates.action = []() {
 		ScreenManager::getInstance().showToast("Checking for updates...");
-		// Trigger updater
 		triggerManualUpdateCheck();
 	};
 	allItems.push_back(checkForUpdates);
@@ -283,7 +287,7 @@ void SettingsScreen::onEnter() {
 			dc.sendMessageAsync(dc.getSelectedChannelId(), msg, [](bool) {});
 			ScreenManager::getInstance().showToast("Logs dumped to channel.");
 		} else {
-			ScreenManager::getInstance().showToast("Select a channel first!");
+			ScreenManager::getInstance().showToast("No channel selected!");
 		}
 	};
 	allItems.push_back(chatLogging);
@@ -297,6 +301,9 @@ void SettingsScreen::refreshVisibleItems() {
 	std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::tolower);
 
 	for (auto &item : allItems) {
+		if (item.isDeveloper && !isDeveloperMode) {
+			continue;
+		}
 
 		if (item.type == SettingItemType::SECTION_HEADER) {
 			if (lowerQuery.empty()) {

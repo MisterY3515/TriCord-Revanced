@@ -4,11 +4,14 @@
 *.smdh
 *.lst
 build/
+
+.cache
+.vscode/
+compile_commands.json
 tools/*
 !tools/build.sh
 !tools/build.bat
 !tools/setup_libsodium.sh
 
-.vscode/
 Gestione/
 CLAUDE.md
