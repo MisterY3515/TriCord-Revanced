@@ -1252,8 +1252,8 @@ u32 MessageScreen::authorNameColor(const Discord::Message &msg) {
 	if (roleColor == 0) {
 		roleColor = client.getRoleColor(guildId, msg.author.id);
 		if (roleColor == 0 && !guildId.empty()) {
-			Discord::Member cached = client.getMember(guildId, msg.author.id);
-			if (cached.user_id.empty()) {
+			const Discord::Member *cached = client.getMemberPtr(guildId, msg.author.id);
+			if (!cached) {
 				uint64_t now = osGetTime();
 				auto it = failedMemberFetches.find(msg.author.id);
 				bool onCooldown = (it != failedMemberFetches.end() && now < it->second);

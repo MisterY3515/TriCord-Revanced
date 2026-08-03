@@ -503,8 +503,6 @@ void DiscordClient::processMessage(std::string &message) {
 	int op = Utils::Json::getInt(doc, "op", -1);
 	lastSequence = Utils::Json::getUint64(doc, "s");
 
-	std::string t = Utils::Json::getString(doc, "t");
-
 	switch (op) {
 	case 7: // Reconnect
 		handleReconnect();
@@ -1905,12 +1903,12 @@ Message DiscordClient::parseSingleMessage(const rapidjson::Value &d) {
 				std::string guildId = getGuildIdFromChannel(msg.channelId);
 				std::string authorId = Utils::Json::getString(refAuthor, "id");
 				if (!guildId.empty() && !authorId.empty()) {
-					Member m = getMember(guildId, authorId);
-					if (!m.user_id.empty()) {
-						if (!m.nickname.empty()) {
-							msg.referencedAuthorNickname = m.nickname;
+					const Member *m = getMemberPtr(guildId, authorId);
+					if (m) {
+						if (!m->nickname.empty()) {
+							msg.referencedAuthorNickname = m->nickname;
 						}
-						msg.referencedAuthorColor = m.role_ids.empty() ? 0 : getRoleColor(guildId, m);
+						msg.referencedAuthorColor = m->role_ids.empty() ? 0 : getRoleColor(guildId, *m);
 					}
 				}
 			}
@@ -2171,17 +2169,24 @@ const Guild *DiscordClient::getGuildPtr(const std::string &guildId) {
 }
 
 Member DiscordClient::getMember(const std::string &guildId, const std::string &userId) {
+	if (const Member *m = getMemberPtr(guildId, userId)) {
+		return *m;
+	}
+	return Member();
+}
+
+const Member *DiscordClient::getMemberPtr(const std::string &guildId, const std::string &userId) const {
 	for (const auto &guild : guilds) {
 		if (guild.id == guildId) {
 			for (const auto &member : guild.members) {
 				if (member.user_id == userId) {
-					return member;
+					return &member;
 				}
 			}
 			break;
 		}
 	}
-	return Member();
+	return nullptr;
 }
 
 int DiscordClient::getRoleColor(const std::string &guildId, const Member &member) {
@@ -2211,19 +2216,18 @@ int DiscordClient::getRoleColor(const std::string &guildId, const Member &member
 }
 
 int DiscordClient::getRoleColor(const std::string &guildId, const std::string &userId) {
-	Member member = getMember(guildId, userId);
-	if (!member.user_id.empty()) {
-		return getRoleColor(guildId, member);
+	if (const Member *member = getMemberPtr(guildId, userId)) {
+		return getRoleColor(guildId, *member);
 	}
 	return 0;
 }
 
 std::string DiscordClient::getMemberDisplayName(const std::string &guildId, const std::string &userId,
                                                 const User &user) {
-	Member member = getMember(guildId, userId);
+	const Member *member = getMemberPtr(guildId, userId);
 
-	if (!member.nickname.empty()) {
-		return member.nickname;
+	if (member && !member->nickname.empty()) {
+		return member->nickname;
 	}
 	if (!user.global_name.empty()) {
 		return user.global_name;

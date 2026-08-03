@@ -221,6 +221,10 @@ class DiscordClient {
 	Guild getGuild(const std::string &guildId);
 	const Guild *getGuildPtr(const std::string &guildId);
 	Member getMember(const std::string &guildId, const std::string &userId);
+	// Read-only accessor; the by-value getMember deep-copies the member's
+	// nickname/avatar/role_ids every time, which the per-header render path
+	// pays on every visible message each frame.
+	const Member *getMemberPtr(const std::string &guildId, const std::string &userId) const;
 	int getRoleColor(const std::string &guildId, const Member &member);
 	int getRoleColor(const std::string &guildId, const std::string &userId);
 	std::string getMemberDisplayName(const std::string &guildId, const std::string &userId, const User &user);
