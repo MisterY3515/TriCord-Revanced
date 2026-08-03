@@ -14,7 +14,9 @@ class I18n {
 
 	void init();
 	bool loadLanguage(const std::string &langCode);
-	std::string get(const std::string &key) const;
+	// Returns a reference into the loaded maps (or the key when missing) so
+	// hot render loops don't copy a string out on every TR() lookup.
+	const std::string &get(const std::string &key) const;
 
 	static std::string format(const std::string &fmt, const std::string &arg0, const std::string &arg1 = "");
 
@@ -35,4 +37,4 @@ class I18n {
 
 } // namespace Core
 
-inline std::string TR(const std::string &key) { return Core::I18n::getInstance().get(key); }
+inline const std::string &TR(const std::string &key) { return Core::I18n::getInstance().get(key); }

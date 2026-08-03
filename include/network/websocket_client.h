@@ -65,6 +65,8 @@ class WebSocketClient {
 	void *inflateStream = nullptr;
 	std::vector<uint8_t> inflateInput;
 	std::vector<uint8_t> inflateChunk;
+	// Reused across poll() calls so a large frame doesn't re-allocate per frame.
+	std::string recvBuf;
 
 	bool initInflate();
 	void freeInflate();

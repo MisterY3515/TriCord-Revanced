@@ -64,7 +64,9 @@ void appendToFile(FILE *file, const char *line) {
 
 	fputs(line, file);
 	fputc('\n', file);
-	fflush(file);
+	// No explicit fflush: the session log is _IOLBF (auto-flushes on '\n') and
+	// the persistent log is opened+closed per write (fclose flushes). An extra
+	// per-line fflush forced a synchronous SD-card write stall on every log line.
 }
 
 void writeCrashReportUnlocked(const char *reason) {

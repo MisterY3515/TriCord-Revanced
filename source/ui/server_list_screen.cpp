@@ -1395,6 +1395,18 @@ void ServerListScreen::drawChannelList(float x, float y, float alpha) {
 	int startIdx = (state == State::SELECTING_CHANNEL) ? channelScrollOffset : 0;
 
 	int rendered = 0;
+	// Depends only on the selected guild, not the channel row: hoisted out of
+	// the per-row loop to avoid a getGuild() linear scan every row every frame.
+	std::string rulesId;
+	if (selectedIndex >= 0 && selectedIndex < (int)listItems.size()) {
+		const auto &item = listItems[selectedIndex];
+		if (!item.isFolder) {
+			if (const auto *guild = getGuild(item.id)) {
+				rulesId = guild->rules_channel_id;
+			}
+		}
+	}
+
 	for (size_t i = startIdx; i < sortedChannels.size() && rendered < itemsPerPage; ++i) {
 		const auto &ch = sortedChannels[i];
 
@@ -1499,17 +1511,6 @@ void ServerListScreen::drawChannelList(float x, float y, float alpha) {
 		if (isCategory) {
 			drawRichText(currentX, currentY + 4.0f, 0.5f, 0.45f, 0.45f, color, name);
 		} else {
-			std::string rulesId;
-			if (selectedIndex >= 0 && selectedIndex < (int)listItems.size()) {
-				const auto &item = listItems[selectedIndex];
-				if (!item.isFolder) {
-					const auto *guild = getGuild(item.id);
-					if (guild) {
-						rulesId = guild->rules_channel_id;
-					}
-				}
-			}
-
 			std::string iconPath;
 			if (!ch.viewable) {
 				iconPath = "romfs:/discord-icons/lock.png";

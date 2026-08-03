@@ -54,7 +54,7 @@ bool I18n::loadLanguage(const std::string &langCode) {
 	return true;
 }
 
-std::string I18n::get(const std::string &key) const {
+const std::string &I18n::get(const std::string &key) const {
 	auto it = strings.find(key);
 	if (it != strings.end()) {
 		return it->second;

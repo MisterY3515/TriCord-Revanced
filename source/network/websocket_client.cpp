@@ -519,9 +519,13 @@ bool WebSocketClient::receiveFrame(std::string &message) {
 		}
 	}
 
-	std::vector<uint8_t> payload(payloadLen);
+	// Read the payload straight into the out-param, skipping the temporary
+	// vector the old code allocated on top of the string copy.
+	message.clear();
 	if (payloadLen > 0) {
-		if (!recvExact(payload.data(), payloadLen)) {
+		message.resize(payloadLen);
+		if (!recvExact(message.data(), payloadLen)) {
+			message.clear();
 			if (onError) {
 				onError("Failed to read payload");
 			}
@@ -530,32 +534,30 @@ bool WebSocketClient::receiveFrame(std::string &message) {
 
 		if (masked) {
 			for (size_t i = 0; i < payloadLen; i++) {
-				payload[i] ^= mask[i % 4];
+				message[i] ^= mask[i % 4];
 			}
 		}
 	}
 
 	switch (opcode) {
 	case WebSocketOpcode::TEXT:
-		message = std::string(payload.begin(), payload.end());
 		return true;
 
 	case WebSocketOpcode::BINARY:
 		lastFrameBinary = true;
-		message = std::string(payload.begin(), payload.end());
 		return true;
 
 	case WebSocketOpcode::CLOSE: {
 		int closeCode = 1000;
-		if (payload.size() >= 2) {
-			closeCode = (payload[0] << 8) | payload[1];
+		if (payloadLen >= 2) {
+			closeCode = ((uint8_t)message[0] << 8) | (uint8_t)message[1];
 		}
 		disconnect(closeCode);
 		return false;
 	}
 
 	case WebSocketOpcode::PING:
-		sendFrame(WebSocketOpcode::PONG, payload.data(), payload.size());
+		sendFrame(WebSocketOpcode::PONG, message.data(), payloadLen);
 		return false;
 
 	case WebSocketOpcode::PONG:
@@ -571,15 +573,17 @@ void WebSocketClient::poll() {
 		return;
 	}
 
-	std::string message;
+	// recvBuf is reused so a large frame (e.g. the multi-hundred-KB READY
+	// payload) doesn't re-allocate on every poll. Callbacks parse synchronously
+	// and never retain the string, so reuse is safe.
 	lastFrameBinary = false;
-	if (!receiveFrame(message) || message.empty()) {
+	if (!receiveFrame(recvBuf) || recvBuf.empty()) {
 		return;
 	}
 
 	// A compressed message can span several frames, ending at Z_SYNC_FLUSH.
 	if (zlibStream && lastFrameBinary) {
-		inflateInput.insert(inflateInput.end(), message.begin(), message.end());
+		inflateInput.insert(inflateInput.end(), recvBuf.begin(), recvBuf.end());
 
 		static const uint8_t SYNC_FLUSH[4] = {0x00, 0x00, 0xFF, 0xFF};
 		if (inflateInput.size() < sizeof(SYNC_FLUSH) ||
@@ -596,9 +600,9 @@ void WebSocketClient::poll() {
 	}
 
 	if (lastFrameBinary && onBinaryMessage) {
-		onBinaryMessage(message);
+		onBinaryMessage(recvBuf);
 	} else if (onMessage) {
-		onMessage(message);
+		onMessage(recvBuf);
 	}
 }
 
