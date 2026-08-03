@@ -29,6 +29,11 @@ namespace UI {
 static C2D_TextBuf textBuf = nullptr;
 static C2D_TextBuf debugTextBuf = nullptr;
 static C2D_TextBuf layoutTextBuf = nullptr;
+// Persistent parse cache. C2D_Text is scale/color-independent, so a parsed
+// string can be redrawn next frame without re-parsing. Entries point into
+// cachedTextBuf; when it fills, both are reset together.
+static C2D_TextBuf cachedTextBuf = nullptr;
+static std::unordered_map<std::string, C2D_Text> cachedText;
 
 static constexpr CFG_Region FALLBACK_REGIONS[] = {CFG_REGION_CHN, CFG_REGION_TWN, CFG_REGION_KOR, CFG_REGION_JPN};
 static constexpr int NUM_FALLBACK_FONTS = sizeof(FALLBACK_REGIONS) / sizeof(FALLBACK_REGIONS[0]);
@@ -197,6 +202,9 @@ void ScreenManager::init() {
 	if (!layoutTextBuf) {
 		layoutTextBuf = C2D_TextBufNew(32768);
 	}
+	if (!cachedTextBuf) {
+		cachedTextBuf = C2D_TextBufNew(131072);
+	}
 
 	debugOverlayEnabled = false;
 
@@ -229,6 +237,11 @@ void ScreenManager::shutdown() {
 		C2D_TextBufDelete(layoutTextBuf);
 		layoutTextBuf = nullptr;
 	}
+	if (cachedTextBuf) {
+		C2D_TextBufDelete(cachedTextBuf);
+		cachedTextBuf = nullptr;
+	}
+	cachedText.clear();
 
 	glyphFontCache.clear();
 	for (int i = 0; i < NUM_FALLBACK_FONTS; i++) {
@@ -734,19 +747,49 @@ void ScreenManager::drawToast() {
 	drawCenteredText(y + 9.0f, z + 0.02f, 0.5f, 0.5f, colorWhite(), toastMessage, 320.0f);
 }
 
-void drawText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &rawText) {
-	std::string text = Utils::Utf8::sanitizeText(rawText);
+// Returns the text to draw, avoiding a heap copy when sanitizing is a no-op
+// (the common case). scratch is only populated when work is actually needed.
+const std::string &sanitizeForRender(const std::string &rawText, std::string &scratch) {
+	if (!Utils::Utf8::sanitizeNeeded(rawText)) {
+		return rawText;
+	}
+	scratch = Utils::Utf8::sanitizeText(rawText);
+	return scratch;
+}
 
-	if (!textBuf) {
+void drawText(float x, float y, float z, float scaleX, float scaleY, u32 color, const std::string &rawText) {
+	std::string scratch;
+	const std::string &text = sanitizeForRender(rawText, scratch);
+
+	if (!textBuf || !cachedTextBuf || text.empty()) {
 		return;
 	}
 
 	if (!needsFontFallback(text)) {
-		C2D_Text c2dText;
-		if (!C2D_TextParse(&c2dText, textBuf, text.c_str())) {
+		auto it = cachedText.find(text);
+		if (it != cachedText.end()) {
+			C2D_DrawText(&it->second, C2D_WithColor, x, y, z, scaleX, scaleY, color);
 			return;
 		}
+
+		if (cachedText.size() >= 512) {
+			// Bound the key memory; all cached C2D_Text point into the buffer,
+			// so reset together.
+			C2D_TextBufClear(cachedTextBuf);
+			cachedText.clear();
+		}
+
+		C2D_Text c2dText;
+		if (!C2D_TextParse(&c2dText, cachedTextBuf, text.c_str())) {
+			// Buffer full: reset together and retry once.
+			C2D_TextBufClear(cachedTextBuf);
+			cachedText.clear();
+			if (!C2D_TextParse(&c2dText, cachedTextBuf, text.c_str())) {
+				return;
+			}
+		}
 		C2D_TextOptimize(&c2dText);
+		cachedText.emplace(text, c2dText);
 		C2D_DrawText(&c2dText, C2D_WithColor, x, y, z, scaleX, scaleY, color);
 		return;
 	}
@@ -788,7 +831,8 @@ void drawCenteredText(float y, float z, float scaleX, float scaleY, u32 color, c
 }
 
 float measureTextDirect(const std::string &rawText, float scaleX, float scaleY) {
-	std::string text = Utils::Utf8::sanitizeText(rawText);
+	std::string scratch;
+	const std::string &text = sanitizeForRender(rawText, scratch);
 
 	if (!layoutTextBuf || text.empty()) {
 		return 0.0f;
@@ -1204,7 +1248,8 @@ std::string getTruncatedRichText(const std::string &rawText, float maxWidth, flo
 
 void drawRichTextUnicodeOnly(float x, float y, float z, float scaleX, float scaleY, u32 color,
                              const std::string &rawText) {
-	std::string text = Utils::Utf8::sanitizeText(rawText);
+	std::string scratch;
+	const std::string &text = sanitizeForRender(rawText, scratch);
 
 	if (!textBuf || text.empty()) {
 		return;
@@ -1239,7 +1284,8 @@ void drawRichTextUnicodeOnly(float x, float y, float z, float scaleX, float scal
 					                emojiSize / info.originalH);
 					currentX += emojiSize + (0.0f * scaleX);
 				} else {
-					std::string clean = Utils::Utf8::sanitizeText(sequence);
+					std::string cleanScratch;
+					const std::string &clean = sanitizeForRender(sequence, cleanScratch);
 					drawText(currentX, y, z, scaleX, scaleY, color, clean);
 					currentX += measureText(clean, scaleX, scaleY);
 				}

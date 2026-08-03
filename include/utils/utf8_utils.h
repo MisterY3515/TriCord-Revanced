@@ -20,6 +20,9 @@ bool isEmojiJoiner(uint32_t cp);
 std::string getEmojiSequence(const std::string &text, size_t &cursor);
 
 std::string getFirstChar(const std::string &text);
+// Cheap scan: true only if sanitizeText would change the string. Lets hot
+// render paths skip the heap copy when the common ASCII case needs nothing.
+bool sanitizeNeeded(const std::string &text);
 std::string sanitizeText(const std::string &text);
 } // namespace Utf8
 } // namespace Utils

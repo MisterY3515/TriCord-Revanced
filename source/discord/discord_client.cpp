@@ -90,7 +90,9 @@ DiscordClient::DiscordClient()
     : state(ConnectionState::DISCONNECTED), heartbeatInterval(0), lastHeartbeat(0), waitingForHeartbeatAck(false),
       hasReceivedHello(false), sessionId(""), lastSequence(0), isConnecting(false), stopWorker(false) {
 
-	workerThread.start([this] { workerLoop(); }, 1);
+	// JSON parsing is the CPU-bound half of the gateway loop; on New 3DS it
+	// belongs on the extra core so READY/GUILD_CREATE don't stall rendering.
+	workerThread.start([this] { workerLoop(); }, 1, 32 * 1024, true);
 }
 
 DiscordClient::~DiscordClient() { shutdown(); }

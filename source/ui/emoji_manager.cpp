@@ -330,6 +330,32 @@ void EmojiManager::update() {
 			}
 		}
 	}
+
+	// Custom (server) emoji: same lastUsedFrame LRU as twemoji, skipping
+	// in-flight fetches so an outstanding response can't resurrect the entry.
+	if (emojiCache.size() > MAX_CUSTOM_EMOJI_CACHE) {
+		while (emojiCache.size() > MAX_CUSTOM_EMOJI_CACHE - 50) {
+			uint32_t oldestFrame = 0xFFFFFFFF;
+			auto oldestIt = emojiCache.end();
+
+			for (auto it = emojiCache.begin(); it != emojiCache.end(); ++it) {
+				if (!it->second.isLoading && it->second.lastUsedFrame < oldestFrame) {
+					oldestFrame = it->second.lastUsedFrame;
+					oldestIt = it;
+				}
+			}
+
+			if (oldestIt != emojiCache.end()) {
+				if (oldestIt->second.tex) {
+					C3D_TexDelete(oldestIt->second.tex);
+					free(oldestIt->second.tex);
+				}
+				emojiCache.erase(oldestIt);
+			} else {
+				break;
+			}
+		}
+	}
 }
 
 size_t EmojiManager::getTwemojiCount() {

@@ -178,32 +178,33 @@ static bool needsSanitizing(uint32_t cp) {
 	return (cp >= 0xFE00 && cp <= 0xFE0F) || (cp >= 0xE0100 && cp <= 0xE01EF) || cp == 0x301C || cp == '$';
 }
 
-std::string sanitizeText(const std::string &text) {
+bool sanitizeNeeded(const std::string &text) {
 	size_t cursor = 0;
-	bool needsWork = false;
 	while (cursor < text.length()) {
 		unsigned char c = static_cast<unsigned char>(text[cursor]);
 		if (c < 0x80) {
 			if (c == '$') {
-				needsWork = true;
-				break;
+				return true;
 			}
 			cursor++;
 			continue;
 		}
 		if (needsSanitizing(decodeNext(text, cursor))) {
-			needsWork = true;
-			break;
+			return true;
 		}
 	}
-	if (!needsWork) {
+	return false;
+}
+
+std::string sanitizeText(const std::string &text) {
+	if (!sanitizeNeeded(text)) {
 		return text;
 	}
 
 	std::string result;
 	result.reserve(text.length());
 
-	cursor = 0;
+	size_t cursor = 0;
 	while (cursor < text.length()) {
 		size_t start = cursor;
 		uint32_t cp = decodeNext(text, cursor);
