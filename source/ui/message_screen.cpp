@@ -1241,27 +1241,34 @@ float MessageScreen::drawForwardHeader(const Discord::Message &msg, float x, flo
 	return y + 15.0f;
 }
 
-u32 MessageScreen::authorNameColor(const Discord::Message &msg) {
-	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
-
+u32 MessageScreen::authorNameColor(const Discord::Message &msg, const MessageRenderCache *renderCache) {
 	int roleColor = 0;
-	if (!msg.member.role_ids.empty()) {
-		roleColor = client.getRoleColor(guildId, msg.member);
+	if (renderCache) {
+		// Resolved once per layout rebuild in buildMessageCache.
+		roleColor = renderCache->authorRoleColor;
+	} else {
+		Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+		if (!msg.member.role_ids.empty()) {
+			roleColor = client.getRoleColor(guildId, msg.member);
+		}
+		if (roleColor == 0) {
+			roleColor = client.getRoleColor(guildId, msg.author.id);
+		}
 	}
 
-	if (roleColor == 0) {
-		roleColor = client.getRoleColor(guildId, msg.author.id);
-		if (roleColor == 0 && !guildId.empty()) {
-			const Discord::Member *cached = client.getMemberPtr(guildId, msg.author.id);
-			if (!cached) {
-				uint64_t now = osGetTime();
-				auto it = failedMemberFetches.find(msg.author.id);
-				bool onCooldown = (it != failedMemberFetches.end() && now < it->second);
+	if (roleColor == 0 && !guildId.empty()) {
+		// Keep the member-fetch side effect even on the cached path: a header
+		// with no role color may still be missing its member record.
+		Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+		const Discord::Member *cached = client.getMemberPtr(guildId, msg.author.id);
+		if (!cached) {
+			uint64_t now = osGetTime();
+			auto it = failedMemberFetches.find(msg.author.id);
+			bool onCooldown = (it != failedMemberFetches.end() && now < it->second);
 
-				if (!onCooldown && pendingMemberFetches.find(msg.author.id) == pendingMemberFetches.end()) {
-					pendingMemberFetches.insert(msg.author.id);
-					queuedMemberFetches.push_back(msg.author.id);
-				}
+			if (!onCooldown && pendingMemberFetches.find(msg.author.id) == pendingMemberFetches.end()) {
+				pendingMemberFetches.insert(msg.author.id);
+				queuedMemberFetches.push_back(msg.author.id);
 			}
 		}
 	}
@@ -1278,16 +1285,19 @@ float MessageScreen::drawAuthorHeader(const Discord::Message &msg, float x, floa
 		return y;
 	}
 
-	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
-
 	std::string displayName;
-	if (!msg.member.nickname.empty()) {
-		displayName = msg.member.nickname;
+	if (renderCache && !renderCache->authorDisplayName.empty()) {
+		displayName = renderCache->authorDisplayName;
 	} else {
-		displayName = client.getMemberDisplayName(guildId, msg.author.id, msg.author);
+		Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+		if (!msg.member.nickname.empty()) {
+			displayName = msg.member.nickname;
+		} else {
+			displayName = client.getMemberDisplayName(guildId, msg.author.id, msg.author);
+		}
 	}
 
-	u32 nameColor = authorNameColor(msg);
+	u32 nameColor = authorNameColor(msg, renderCache);
 
 	float avatarX = 10.0f;
 	float avatarSize = 28.0f;
@@ -2606,6 +2616,23 @@ void MessageScreen::buildMessageCache(const Discord::Message &msg, MessageRender
 		}
 	}
 	EmojiManager::getInstance().prefetchEmojisFromText(msg.content);
+
+	// Author name + role color once per rebuild; drawAuthorHeader used to scan
+	// guild members on every frame for every visible message.
+	Discord::DiscordClient &client = Discord::DiscordClient::getInstance();
+	if (!msg.member.nickname.empty()) {
+		cache.authorDisplayName = msg.member.nickname;
+	} else {
+		cache.authorDisplayName = client.getMemberDisplayName(guildId, msg.author.id, msg.author);
+	}
+	int roleColor = 0;
+	if (!msg.member.role_ids.empty()) {
+		roleColor = client.getRoleColor(guildId, msg.member);
+	}
+	if (roleColor == 0) {
+		roleColor = client.getRoleColor(guildId, msg.author.id);
+	}
+	cache.authorRoleColor = roleColor;
 
 	cache.dateKey = MessageUtils::getLocalDateString(msg.timestamp);
 	cache.headerTimestamp = MessageUtils::formatTimestamp(msg.timestamp);

@@ -54,6 +54,10 @@ class MessageScreen : public Screen {
 		std::string headerTimestamp;
 		float pollHeight = 0.0f;
 		std::vector<std::string> pollQuestionLines;
+		// Author header resolved once per layout rebuild. Computing these per
+		// frame was an O(guild members) scan for every visible message header.
+		std::string authorDisplayName;
+		int authorRoleColor = 0;
 		// One-line reply preview (stripFormatting + wrap) computed once in
 		// buildMessageCache instead of re-wrapped on every frame.
 		std::string replyPreviewText;
@@ -134,7 +138,7 @@ class MessageScreen : public Screen {
 	std::set<std::string> pendingMemberFetches;
 	std::vector<std::string> queuedMemberFetches;
 	void flushMemberFetches();
-	u32 authorNameColor(const Discord::Message &msg);
+	u32 authorNameColor(const Discord::Message &msg, const MessageRenderCache *renderCache = nullptr);
 	std::map<std::string, uint64_t> failedMemberFetches;
 	std::shared_ptr<bool> aliveToken;
 	enum class BottomScreenMode { TOPIC, EMOJI_PICKER };
