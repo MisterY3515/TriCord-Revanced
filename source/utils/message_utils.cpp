@@ -80,22 +80,29 @@ time_t parseISO8601(const std::string &timestamp) {
 	if (sscanf(timestamp.c_str(), "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &min, &sec) != 6) {
 		return 0;
 	}
+	if (year < 1970 || month < 1 || month > 12 || day < 1 || day > 31) {
+		return 0;
+	}
+
+	// Days since epoch in closed form instead of a per-year loop: 365 per year
+	// plus one leap day for each leap year before `year`. Called up to 4x per
+	// message during a list rebuild, so the loop mattered.
+	const bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+	const long y = year - 1;
+	// 477 = leap days between 1970-01-01 and 1970-01-01 (floor(1969/4)-floor(1969/100)+floor(1969/400)).
+	const long leapDays = y / 4 - y / 100 + y / 400 - 477;
+	long days = (long)(year - 1970) * 365 + leapDays;
 
 	static const int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-	time_t epoch = 0;
-	for (int y = 1970; y < year; ++y) {
-		epoch += (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 366 : 365;
-	}
 	for (int m = 0; m < month - 1; ++m) {
-		epoch += days_in_month[m];
-		if (m == 1 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) {
-			epoch += 1;
+		days += days_in_month[m];
+		if (m == 1 && leap) {
+			days += 1;
 		}
 	}
-	epoch += day - 1;
-	epoch = epoch * 86400 + hour * 3600 + min * 60 + sec;
+	days += day - 1;
 
-	return epoch;
+	return (time_t)(days * 86400 + (long)hour * 3600 + (long)min * 60 + sec);
 }
 
 time_t snowflakeToTimestamp(const std::string &snowflake) {

@@ -74,8 +74,13 @@ void ImageManager::touchImage(const std::string &url) {
 		return; // Don't LRU local images
 	}
 
-	lruList.remove(url);
-	lruList.push_front(url);
+	// O(1) splice via the entry's stored list iterator instead of an O(n)
+	// lruList.remove + push_front (string alloc) on every cache hit.
+	auto it = textureCache.find(url);
+	if (it == textureCache.end() || it->second.lruIt == lruList.end()) {
+		return;
+	}
+	lruList.splice(lruList.begin(), lruList, it->second.lruIt);
 }
 
 void ImageManager::evictOldest() {
@@ -101,8 +106,9 @@ void ImageManager::clearFailed(const std::string &url) {
 	std::lock_guard<std::mutex> lock(cacheMutex);
 	auto it = textureCache.find(url);
 	if (it != textureCache.end() && it->second.failed) {
+		// Failed entries are never LRU-tracked (lruIt == end()), so there is
+		// no list node to remove.
 		textureCache.erase(it);
-		lruList.remove(url);
 	}
 	fetchingUrls.erase(url);
 }
@@ -148,9 +154,10 @@ C3D_Tex *ImageManager::getImage(const std::string &url) {
 
 	{
 		std::lock_guard<std::mutex> lock(cacheMutex);
-		if (textureCache.find(url) != textureCache.end()) {
+		auto it = textureCache.find(url);
+		if (it != textureCache.end()) {
 			touchImage(url);
-			return textureCache[url].tex;
+			return it->second.tex;
 		}
 	}
 
@@ -211,6 +218,7 @@ C3D_Tex *ImageManager::getLocalImage(std::string_view path, bool noResize) {
 		info.tex = tex;
 		info.originalW = outW;
 		info.originalH = outH;
+		info.lruIt = lruList.end(); // local images are not LRU-tracked
 		std::lock_guard<std::mutex> lock(cacheMutex);
 		textureCache[pathStr] = info;
 		return tex;
@@ -318,6 +326,7 @@ void ImageManager::prefetch(const std::string &url, int origW, int origH, Networ
 			    std::lock_guard<std::mutex> lock(cacheMutex);
 			    ImageInfo info;
 			    info.failed = true;
+			    info.lruIt = lruList.end();
 			    textureCache[url] = info;
 			    fetchingUrls.erase(url);
 		    }
@@ -437,7 +446,9 @@ void ImageManager::update() {
 	textureCache[p.url] = info;
 	if (info.tex) {
 		currentCacheBytes += info.vramSize;
-		touchImage(p.url);
+		textureCache[p.url].lruIt = lruList.insert(lruList.begin(), p.url);
+	} else {
+		textureCache[p.url].lruIt = lruList.end();
 	}
 	generation++;
 }

@@ -29,6 +29,10 @@ class ImageManager {
 		int originalH = 0;
 		size_t vramSize = 0;
 		bool failed = false;
+		// Position in lruList for the remote textures; end() for entries that
+		// are not LRU-tracked (local images, failed fetches). Lets a cache hit
+		// move the entry to the front in O(1) instead of an O(n) list scan.
+		std::list<std::string>::iterator lruIt;
 	};
 
 	C3D_Tex *getImage(const std::string &url);
