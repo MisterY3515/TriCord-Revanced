@@ -2,6 +2,7 @@
 #include "core/config.h"
 #include "core/i18n.h"
 #include "core/updater.h"
+#include "discord/discord_client.h"
 #include "log.h"
 #include "ui/screen_manager.h"
 #include "utils/message_utils.h"

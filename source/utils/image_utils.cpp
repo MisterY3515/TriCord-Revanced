@@ -7,7 +7,8 @@
 #include <string.h>
 #include <vector>
 #include <cstdlib>
-#include "utils/stb_image_write.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 namespace Utils {
 namespace Image {
