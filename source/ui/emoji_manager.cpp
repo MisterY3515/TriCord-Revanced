@@ -355,8 +355,8 @@ void EmojiManager::update() {
 		}
 	}
 
-	if (twemojiCache.size() > MAX_TWEMOJI_CACHE) {
-		while (twemojiCache.size() > MAX_TWEMOJI_CACHE - 50) {
+	if (twemojiCache.size() > maxTwemojiCache()) {
+		while (twemojiCache.size() > maxTwemojiCache() - 50) {
 			uint32_t oldestFrame = 0xFFFFFFFF;
 			auto oldestIt = twemojiCache.end();
 
@@ -381,8 +381,8 @@ void EmojiManager::update() {
 
 	// Custom (server) emoji: same lastUsedFrame LRU as twemoji, skipping
 	// in-flight fetches so an outstanding response can't resurrect the entry.
-	if (emojiCache.size() > MAX_CUSTOM_EMOJI_CACHE) {
-		while (emojiCache.size() > MAX_CUSTOM_EMOJI_CACHE - 50) {
+	if (emojiCache.size() > maxCustomEmojiCache()) {
+		while (emojiCache.size() > maxCustomEmojiCache() - 50) {
 			uint32_t oldestFrame = 0xFFFFFFFF;
 			auto oldestIt = emojiCache.end();
 

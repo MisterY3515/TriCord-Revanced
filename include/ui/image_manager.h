@@ -1,6 +1,7 @@
 #ifndef IMAGE_MANAGER_H
 #define IMAGE_MANAGER_H
 
+#include "core/config.h"
 #include "network/network_manager.h"
 #include "utils/image_utils.h"
 #include "utils/worker_thread.h"
@@ -52,7 +53,7 @@ class ImageManager {
 
 	size_t getCacheBytes();
 	size_t getCacheCount();
-	static constexpr size_t getCacheBudget() { return MAX_CACHE_BYTES; }
+	static size_t getCacheBudget() { return maxCacheBytes(); }
 
   private:
 	ImageManager() = default;
@@ -90,7 +91,7 @@ class ImageManager {
 	std::atomic<int> currentSessionId{0};
 	std::atomic<uint32_t> generation{0};
 
-	static constexpr size_t MAX_CACHE_BYTES = 12 * 1024 * 1024;
+	static size_t maxCacheBytes() { return isNew3DS() ? 12 * 1024 * 1024 : 6 * 1024 * 1024; }
 	static constexpr size_t MIN_CACHE_ENTRIES = 8;
 	static constexpr size_t MAX_PENDING_TEXTURES = 4;
 	size_t currentCacheBytes = 0;

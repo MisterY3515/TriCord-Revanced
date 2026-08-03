@@ -395,7 +395,7 @@ void ImageManager::update() {
 
 	if (decoded) {
 		std::lock_guard<std::mutex> lock(cacheMutex);
-		while (currentCacheBytes + p.tiled.vramSize > MAX_CACHE_BYTES && !lruList.empty()) {
+		while (currentCacheBytes + p.tiled.vramSize > maxCacheBytes() && !lruList.empty()) {
 			evictOldest();
 		}
 	}

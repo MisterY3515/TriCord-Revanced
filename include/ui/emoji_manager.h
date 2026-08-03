@@ -1,6 +1,7 @@
 #ifndef EMOJI_MANAGER_H
 #define EMOJI_MANAGER_H
 
+#include "core/config.h"
 #include "utils/image_utils.h"
 #include "utils/worker_thread.h"
 #include <citro2d.h>
@@ -99,10 +100,8 @@ class EmojiManager {
 
 	static const int TWEMOJI_DECODE_DIM = 32;
 
-	static const size_t MAX_TWEMOJI_CACHE = 250;
-	// Bounds the custom (server) emoji cache; previously unbounded, it grew
-	// with every emoji id seen for the whole session.
-	static const size_t MAX_CUSTOM_EMOJI_CACHE = 200;
+	static size_t maxTwemojiCache() { return isNew3DS() ? 250 : 120; }
+	static size_t maxCustomEmojiCache() { return isNew3DS() ? 200 : 80; }
 	static const size_t MAX_PENDING_EMOJI = 4;
 	static const size_t MAX_UPLOADS_PER_FRAME = 4;
 };

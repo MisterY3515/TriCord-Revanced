@@ -30,6 +30,12 @@
 #include <string>
 #include <vector>
 
+inline bool isNew3DS() {
+	bool isNew = false;
+	Result rc = APT_CheckNew3DS(&isNew);
+	return R_SUCCEEDED(rc) && isNew;
+}
+
 struct Theme {
 	u32 bg;
 	u32 bg_dark;
