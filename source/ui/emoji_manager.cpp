@@ -155,6 +155,14 @@ void EmojiManager::freePendingLocked() {
 		}
 	}
 	pendingEmoji.clear();
+
+	for (auto &pending : pendingCustomEmoji) {
+		if (pending.tiled.pixels) {
+			free(pending.tiled.pixels);
+			pending.tiled.pixels = nullptr;
+		}
+	}
+	pendingCustomEmoji.clear();
 }
 
 void EmojiManager::shutdown() {
@@ -307,6 +315,46 @@ void EmojiManager::update() {
 		pendingCv.notify_one();
 	}
 
+	// Custom (server) emoji uploads, decoded on the network thread in
+	// prefetchEmoji and turned into textures here on the main thread.
+	size_t customUploads = 0;
+	while (!pendingCustomEmoji.empty() && customUploads < MAX_UPLOADS_PER_FRAME) {
+		PendingCustomEmoji p = std::move(pendingCustomEmoji.front());
+		pendingCustomEmoji.pop_front();
+		customUploads++;
+
+		C3D_Tex *tex = nullptr;
+		if (p.tiled.pixels) {
+			tex = (C3D_Tex *)malloc(sizeof(C3D_Tex));
+			if (tex && C3D_TexInit(tex, p.tiled.p2w, p.tiled.p2h, GPU_RGBA8)) {
+				C3D_TexSetFilter(tex, GPU_LINEAR, GPU_LINEAR);
+				memcpy(tex->data, p.tiled.pixels, p.tiled.vramSize);
+				GSPGPU_FlushDataCache(tex->data, p.tiled.vramSize);
+			} else {
+				free(tex);
+				tex = nullptr;
+			}
+			free(p.tiled.pixels);
+			p.tiled.pixels = nullptr;
+		}
+
+		auto it = emojiCache.find(p.id);
+		if (it != emojiCache.end()) {
+			if (it->second.tex) {
+				C3D_TexDelete(it->second.tex);
+				free(it->second.tex);
+			}
+			it->second.tex = tex;
+			it->second.originalW = p.tiled.w;
+			it->second.originalH = p.tiled.h;
+			it->second.isLoading = false;
+			it->second.lastUsedFrame = frameCounter;
+		} else if (tex) {
+			C3D_TexDelete(tex);
+			free(tex);
+		}
+	}
+
 	if (twemojiCache.size() > MAX_TWEMOJI_CACHE) {
 		while (twemojiCache.size() > MAX_TWEMOJI_CACHE - 50) {
 			uint32_t oldestFrame = 0xFFFFFFFF;
@@ -396,19 +444,17 @@ void EmojiManager::prefetchEmoji(const std::string &emojiId) {
 	Network::NetworkManager::getInstance().enqueue(
 	    url, "GET", "", Network::RequestPriority::INTERACTIVE, [this, emojiId](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
-			    int w, h;
-			    C3D_Tex *tex = Utils::Image::loadTextureFromMemory((const unsigned char *)resp.body.data(),
-			                                                       resp.body.size(), w, h);
-			    if (tex) {
-				    std::unique_lock<std::shared_mutex> lock(cacheMutex);
-				    EmojiInfo info;
-				    info.tex = tex;
-				    info.originalW = w;
-				    info.originalH = h;
-				    info.lastUsedFrame = frameCounter;
-				    info.isLoading = false;
-				    emojiCache[emojiId] = info;
+			    // Decode here (CPU-only); the C3D_TexInit + cache insert happen on
+			    // the main thread in update() so off-thread uploads can't race the
+			    // render thread's linear-heap texture allocations.
+			    Utils::Image::TiledData tiled =
+			        Utils::Image::decodeToTiled((const unsigned char *)resp.body.data(), resp.body.size(),
+			                                    EmojiManager::TWEMOJI_DECODE_DIM, EmojiManager::TWEMOJI_DECODE_DIM);
+			    if (!tiled.pixels) {
+				    return;
 			    }
+			    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+			    pendingCustomEmoji.push_back({emojiId, tiled});
 		    }
 	    });
 }

@@ -62,6 +62,11 @@ class EmojiManager {
 		Utils::Image::TiledData tiled;
 	};
 
+	struct PendingCustomEmoji {
+		std::string id;
+		Utils::Image::TiledData tiled;
+	};
+
 	void loadEmojiData();
 	void loaderWorker();
 	void ensureLoaderLocked();
@@ -69,6 +74,8 @@ class EmojiManager {
 
 	std::unordered_map<std::string, EmojiInfo> emojiCache;
 	std::unordered_map<std::string, EmojiInfo> twemojiCache;
+
+	std::deque<PendingCustomEmoji> pendingCustomEmoji;
 
 	std::deque<std::string> priorityQueue;
 	std::deque<std::string> backgroundQueue;

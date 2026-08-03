@@ -1099,9 +1099,11 @@ void DiscordClient::handleMessageCreate(const rapidjson::Value &d) {
 			for (auto it = privateChannels.begin(); it != privateChannels.end(); ++it) {
 				if (it->id == msg.channelId) {
 					it->last_message_id = msg.id;
-					Channel ch = *it;
+					// Move, not copy: the channel carries recipients/overwrites
+					// vectors that would otherwise be deep-copied twice.
+					Channel ch = std::move(*it);
 					privateChannels.erase(it);
-					privateChannels.insert(privateChannels.begin(), ch);
+					privateChannels.insert(privateChannels.begin(), std::move(ch));
 					privateChannelsDirty.store(true);
 					break;
 				}
@@ -2027,7 +2029,9 @@ void DiscordClient::fetchMessagesAsync(const std::string &channelId, int limit, 
 	    [this, cb, channelId](const Network::HttpResponse &resp) {
 		    std::vector<Message> messages;
 		    if (resp.success && resp.statusCode == 200) {
-			    messages = parseMessages(resp.body);
+			    // Parses in place; resp is owned by this callback invocation and
+			    // not read again below except for the (already-parsed) headers.
+			    messages = parseMessages(const_cast<std::string &>(resp.body));
 			    if (messages.empty()) {
 
 				    Logger::log("Fetched 0 messages for channel %s. Body len: %zu", channelId.c_str(),
@@ -2061,7 +2065,7 @@ void DiscordClient::fetchMessagesBeforeAsync(const std::string &channelId, const
 	    [this, cb, channelId](const Network::HttpResponse &resp) {
 		    std::vector<Message> messages;
 		    if (resp.success && resp.statusCode == 200) {
-			    messages = parseMessages(resp.body);
+			    messages = parseMessages(const_cast<std::string &>(resp.body));
 		    } else {
 			    Logger::log("Failed to fetch older messages for %s: Status %d", channelId.c_str(), resp.statusCode);
 		    }
@@ -2101,15 +2105,14 @@ void DiscordClient::fetchMessage(const std::string &channelId, const std::string
 	                                               {{"Authorization", token}});
 }
 
-std::vector<Message> DiscordClient::parseMessages(const std::string &json) {
+std::vector<Message> DiscordClient::parseMessages(std::string &json) {
 	std::vector<Message> messages;
 	rapidjson::Document doc;
 
 	if (json.empty()) {
 		return messages;
 	}
-	std::string buffer = json;
-	doc.ParseInsitu<rapidjson::kParseDefaultFlags | rapidjson::kParseInsituFlag>(&buffer[0]);
+	doc.ParseInsitu<rapidjson::kParseDefaultFlags | rapidjson::kParseInsituFlag>(&json[0]);
 
 	if (!doc.HasParseError() && doc.IsArray()) {
 		for (rapidjson::SizeType i = 0; i < doc.Size(); i++) {

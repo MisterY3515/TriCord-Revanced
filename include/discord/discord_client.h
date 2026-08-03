@@ -277,7 +277,9 @@ class DiscordClient {
 	void postMessage(const std::string &channelId, const std::string &content, const std::string &nonce,
 	                 const std::string &replyId, SendMessageCallback cb);
 
-	std::vector<Message> parseMessages(const std::string &json);
+	// Takes the body by mutable ref: ParseInsitu needs a writable buffer, and
+	// doing it in place avoids a full copy of every message-list fetch.
+	std::vector<Message> parseMessages(std::string &json);
 	Message parseSingleMessage(const rapidjson::Value &d);
 	Message parseSingleMessage(const std::string &json);
 
