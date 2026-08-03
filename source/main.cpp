@@ -49,7 +49,10 @@ int main(int argc, char **argv) {
 	            (unsigned long)(osGetMemRegionFree(MEMREGION_APPLICATION) / 1024),
 	            (unsigned long)(linearSpaceFree() / 1024));
 	Config::getInstance().load();
-	Network::NetworkManager::getInstance().init(3, 2);
+	// Old 3DS has a single core: fewer network worker threads means less
+	// context-switching against the render thread. New 3DS has the extra core
+	// to soak the concurrency.
+	Network::NetworkManager::getInstance().init(isNew3DS() ? 3 : 1, isNew3DS() ? 2 : 1);
 
 	Network::HttpClient timeClient;
 	timeClient.setTimeout(3);

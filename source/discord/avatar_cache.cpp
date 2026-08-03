@@ -214,8 +214,8 @@ void AvatarCache::startFetchLocked(const std::string &key, const std::string &ur
 	    [this, key, cornerRatio](const Network::HttpResponse &resp) {
 		    if (resp.statusCode == 200 && !resp.body.empty()) {
 			    Utils::Image::TiledData tiled = Utils::Image::decodeToTiled(
-			        (const unsigned char *)resp.body.data(), resp.body.size(), Utils::Image::MAX_REMOTE_DIM,
-			        Utils::Image::MAX_REMOTE_DIM, true, cornerRatio);
+			        (const unsigned char *)resp.body.data(), resp.body.size(), Utils::Image::maxRemoteDim(),
+			        Utils::Image::maxRemoteDim(), true, cornerRatio);
 			    if (tiled.pixels) {
 				    std::lock_guard<std::recursive_mutex> lock(this->cacheMutex);
 				    PendingAvatar pa;

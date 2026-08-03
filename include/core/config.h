@@ -31,9 +31,12 @@
 #include <vector>
 
 inline bool isNew3DS() {
-	bool isNew = false;
-	Result rc = APT_CheckNew3DS(&isNew);
-	return R_SUCCEEDED(rc) && isNew;
+	static const bool isNew = [] {
+		bool v = false;
+		Result rc = APT_CheckNew3DS(&v);
+		return R_SUCCEEDED(rc) && v;
+	}();
+	return isNew;
 }
 
 struct Theme {

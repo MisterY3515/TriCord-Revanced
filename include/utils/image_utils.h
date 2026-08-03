@@ -1,4 +1,5 @@
 #pragma once
+#include "core/config.h"
 #include <citro3d.h>
 #include <cstdio>
 
@@ -14,11 +15,12 @@ struct TiledData {
 
 // Message media is drawn at most ~330px wide on the 240p screens, so 256 is
 // the largest power-of-two that stays sharp while capping the biggest texture
-// at 256KB of linear heap (512 would be 1MB each).
-static constexpr int MAX_REMOTE_DIM = 256;
+// at 256KB of linear heap (512 would be 1MB each). Old 3DS decodes 4x slower,
+// so halve the cap there to cut resize work and linear-heap pressure.
+inline int maxRemoteDim() { return isNew3DS() ? 256 : 128; }
 
-TiledData decodeToTiled(const unsigned char *data, size_t size, int maxWidth = MAX_REMOTE_DIM,
-                        int maxHeight = MAX_REMOTE_DIM, bool noResize = false, float cornerRatio = 0.0f);
+TiledData decodeToTiled(const unsigned char *data, size_t size, int maxWidth = maxRemoteDim(),
+                        int maxHeight = maxRemoteDim(), bool noResize = false, float cornerRatio = 0.0f);
 
 C3D_Tex *loadTextureFromMemory(const unsigned char *data, size_t size, int &outW, int &outH, bool noResize = false);
 

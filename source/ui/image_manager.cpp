@@ -243,6 +243,11 @@ void ImageManager::prefetch(const std::string &url, int origW, int origH, Networ
 		if (fetchingUrls.find(url) != fetchingUrls.end()) {
 			return;
 		}
+		// Old 3DS single core: cap in-flight fetches so a message with many
+		// images doesn't flood the decoder queue; misses re-fetch on demand.
+		if (!isNew3DS() && fetchingUrls.size() >= 8) {
+			return;
+		}
 
 		fetchingUrls.insert(url);
 	}
@@ -256,8 +261,8 @@ void ImageManager::prefetch(const std::string &url, int origW, int origH, Networ
 
 	if (optimizedUrl.find("media.discordapp.net") != std::string::npos ||
 	    optimizedUrl.find("images-ext-") != std::string::npos) {
-		int targetW = Utils::Image::MAX_REMOTE_DIM;
-		int targetH = Utils::Image::MAX_REMOTE_DIM;
+		int targetW = Utils::Image::maxRemoteDim();
+		int targetH = Utils::Image::maxRemoteDim();
 		if (origW > 0 && origH > 0) {
 			if (origW > targetW || origH > targetH) {
 				if (origW > origH) {

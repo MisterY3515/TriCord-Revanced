@@ -189,7 +189,7 @@ TiledData decodeToTiled(const unsigned char *data, size_t size, int maxWidth, in
 }
 
 C3D_Tex *loadTextureFromMemory(const unsigned char *data, size_t size, int &outW, int &outH, bool noResize) {
-	TiledData tiled = decodeToTiled(data, size, MAX_REMOTE_DIM, MAX_REMOTE_DIM, noResize);
+	TiledData tiled = decodeToTiled(data, size, maxRemoteDim(), maxRemoteDim(), noResize);
 	if (!tiled.pixels) {
 		return nullptr;
 	}
