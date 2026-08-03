@@ -1146,7 +1146,8 @@ float MessageScreen::drawSystemMessage(const Discord::Message &msg, float y, flo
 	return height;
 }
 
-float MessageScreen::drawReplyPreview(const Discord::Message &msg, float x, float y) {
+float MessageScreen::drawReplyPreview(const Discord::Message &msg, float x, float y,
+                                      const MessageRenderCache *renderCache) {
 	if (msg.type != 19 || msg.referencedAuthorName.empty()) {
 		return y;
 	}
@@ -1168,16 +1169,20 @@ float MessageScreen::drawReplyPreview(const Discord::Message &msg, float x, floa
 
 	float maxWidthRef = 310.0f - x - (prefixW + authorW + colonW);
 
-	std::string cleanedContent = Utils::Markdown::stripFormatting(msg.referencedContent);
-	std::replace(cleanedContent.begin(), cleanedContent.end(), '\n', ' ');
-	std::replace(cleanedContent.begin(), cleanedContent.end(), '\r', ' ');
+	std::string replyContent;
+	if (renderCache && !renderCache->replyPreviewText.empty()) {
+		replyContent = renderCache->replyPreviewText;
+	} else {
+		std::string cleanedContent = Utils::Markdown::stripFormatting(msg.referencedContent);
+		std::replace(cleanedContent.begin(), cleanedContent.end(), '\n', ' ');
+		std::replace(cleanedContent.begin(), cleanedContent.end(), '\r', ' ');
 
-	auto lines = MessageUtils::wrapText(cleanedContent, maxWidthRef, 0.35f);
-	std::string replyContent = "";
-	if (!lines.empty()) {
-		replyContent = lines[0];
-		if (lines.size() > 1) {
-			replyContent += "...";
+		auto lines = MessageUtils::wrapText(cleanedContent, maxWidthRef, 0.35f);
+		if (!lines.empty()) {
+			replyContent = lines[0];
+			if (lines.size() > 1) {
+				replyContent += "...";
+			}
 		}
 	}
 
@@ -1811,7 +1816,7 @@ float MessageScreen::drawMessage(const Discord::Message &msg, float y, float max
 	}
 
 	float contentY = y + topMargin + 1.0f;
-	contentY = drawReplyPreview(msg, textOffsetX, contentY);
+	contentY = drawReplyPreview(msg, textOffsetX, contentY, renderCache);
 
 	float avatarTopY = contentY;
 	contentY = drawAuthorHeader(msg, textOffsetX, contentY, showHeader, renderCache);
@@ -2609,6 +2614,27 @@ void MessageScreen::buildMessageCache(const Discord::Message &msg, MessageRender
 		float pollMaxWidth = 400.0f - 42.0f - 10.0f;
 		cache.pollHeight = calculatePollHeight(msg.poll, pollMaxWidth);
 		cache.pollQuestionLines = MessageUtils::wrapText(msg.poll.question, pollMaxWidth - POLL_PAD * 2.0f, 0.45f);
+	}
+
+	if (msg.type == 19 && !msg.referencedAuthorName.empty()) {
+		// Mirrors drawReplyPreview's geometry (textOffsetX is a constant 42).
+		std::string author =
+		    !msg.referencedAuthorNickname.empty() ? msg.referencedAuthorNickname : msg.referencedAuthorName;
+		float authorW = UI::measureRichText(author, 0.35f, 0.35f);
+		float colonW = UI::measureRichText(": ", 0.35f, 0.35f);
+		float maxWidthRef = 310.0f - 42.0f - (12.0f + authorW + colonW);
+		if (maxWidthRef > 0.0f) {
+			std::string cleaned = Utils::Markdown::stripFormatting(msg.referencedContent);
+			std::replace(cleaned.begin(), cleaned.end(), '\n', ' ');
+			std::replace(cleaned.begin(), cleaned.end(), '\r', ' ');
+			auto lines = MessageUtils::wrapText(cleaned, maxWidthRef, 0.35f);
+			if (!lines.empty()) {
+				cache.replyPreviewText = lines[0];
+				if (lines.size() > 1) {
+					cache.replyPreviewText += "...";
+				}
+			}
+		}
 	}
 
 	cache.isEmojiOnly = MessageUtils::isEmojiOnly(msg.displayContent, cache.emojiCount);

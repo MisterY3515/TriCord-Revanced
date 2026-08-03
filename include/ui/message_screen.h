@@ -54,6 +54,9 @@ class MessageScreen : public Screen {
 		std::string headerTimestamp;
 		float pollHeight = 0.0f;
 		std::vector<std::string> pollQuestionLines;
+		// One-line reply preview (stripFormatting + wrap) computed once in
+		// buildMessageCache instead of re-wrapped on every frame.
+		std::string replyPreviewText;
 
 		std::string msgId;
 		std::string prevId;
@@ -147,7 +150,7 @@ class MessageScreen : public Screen {
 	float drawMessage(const Discord::Message &msg, float y, float maxWidth, bool isSelected, bool showHeader, bool prevGroupedMention = false, bool nextGroupedMention = false, const MessageRenderCache *renderCache = nullptr);
 	float drawForumMessage(const Discord::Message &msg, float y, bool isSelected);
 	float drawSystemMessage(const Discord::Message &msg, float y, float topMargin, float height, bool isSelected);
-	float drawReplyPreview(const Discord::Message &msg, float x, float y);
+	float drawReplyPreview(const Discord::Message &msg, float x, float y, const MessageRenderCache *renderCache);
 	float drawForwardHeader(const Discord::Message &msg, float x, float y);
 	float drawAuthorHeader(const Discord::Message &msg, float x, float y, bool showHeader,
 	                       const MessageRenderCache *renderCache = nullptr);
